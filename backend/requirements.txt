@@ -1,0 +1,6 @@
+﻿# Direct runtime dependencies; keep test tools in requirements-dev.txt.
+fastapi==0.162.0
+pydantic==2.14.1
+python-dotenv==1.2.4
+SQLAlchemy==2.0.55
+uvicorn==0.54.0

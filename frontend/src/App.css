@@ -1,0 +1,34 @@
+.site-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-block: 1.5rem;
+  border-bottom: 1px solid #dce5e1;
+}
+
+.brand { color: #193e35; font-size: 1.4rem; font-weight: 750; text-decoration: none; }
+.brand span { display: block; color: #53665f; font-size: .8rem; font-weight: 400; }
+.development-badge { padding: .4rem .7rem; border-radius: 2rem; background: #e3ece6; font-size: .8rem; }
+main { display: grid; grid-template-columns: 1.5fr 1fr; gap: 4rem; align-items: center; padding-block: 6rem; }
+.eyebrow { color: #396c59; font-weight: 650; }
+h1 { margin: 1rem 0 1.5rem; font-size: clamp(2.3rem, 5vw, 4rem); line-height: 1.2; letter-spacing: -.04em; }
+.intro-copy { max-width: 35rem; color: #53665f; }
+.connection-card { padding: 1.7rem; border: 1px solid #dce5e1; border-radius: 1rem; background: #fff; }
+.card-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+h2 { margin: 0; font-size: 1.2rem; }
+.status-dot { flex-shrink: 0; width: .65rem; height: .65rem; background: #8c958f; border-radius: 50%; }
+.status-dot.connected { background: #23825b; }
+.connection-card p { min-height: 3rem; color: #53665f; }
+button { padding: .7rem 1rem; border: 0; border-radius: .5rem; background: #234f41; color: #fff; font: inherit; cursor: pointer; }
+button:hover:enabled { background: #163d30; }
+button:disabled { opacity: .65; cursor: wait; }
+footer { padding-block: 1.5rem; color: #53665f; border-top: 1px solid #dce5e1; font-size: .85rem; }
+
+@media (max-width: 760px) {
+  main { grid-template-columns: 1fr; gap: 2rem; padding-block: 3rem; }
+}
+
+@media (max-width: 400px) {
+  .site-header { flex-wrap: wrap; }
+}
