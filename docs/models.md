@@ -1,6 +1,7 @@
 # Models từ DBML
 
-`backend/app/models/` chứa 24 SQLAlchemy 2 ORM model, mỗi bảng một file.
+`backend/app/models/` chứa 24 SQLAlchemy 2 model theo DBML và AuthSession bổ sung
+cho JWT Bearer/refresh rotation (tổng 25 bảng), mỗi bảng một file.
 `base.py` dùng chung metadata và quy tắc đặt tên constraint; `enums.py` chứa 15
 enum; `__init__.py` import tất cả model để metadata đủ bảng khi dùng migration.
 `app/schemas/` tiếp tục dành cho hợp đồng API Pydantic.
@@ -12,6 +13,7 @@ enum; `__init__.py` import tất cả model để metadata đủ bảng khi dùn
 | Đào tạo | `Course`, `Lesson`, `Attendance`, `CourseProgress` |
 | Cộng đồng | `Post`, `Comment`, `RoleRequest`, `CommentReport` |
 | Tài chính | `Wallet`, `BookingSettlement`, `InternalTransaction`, `ExternalTransaction`, `CreditPackage`, `CashOrder`, `WalletSnapshot` |
+| Auth ngoài DBML | `AuthSession` — hash refresh, hạn phiên, thu hồi/logout |
 
 ## Quy ước ánh xạ
 
@@ -30,6 +32,8 @@ enum; `__init__.py` import tất cả model để metadata đủ bảng khi dùn
   `messages` và `attendance`. Chưa thêm các thuộc tính điều hướng ORM
   `relationship()` hoặc cascade xóa ngoài quy định của DBML.
 - Import model không kết nối database và không tự chạy `create_all`.
+- Riêng auth_sessions mới dùng timestamp có timezone; 24 bảng DBML giữ kiểu cũ.
+  Bảng phiên chỉ lưu hash refresh, không lưu JWT gốc; cần migration trước khi dùng.
 
 ```python
 from app.models import Base, User
@@ -55,18 +59,31 @@ kiểu dữ liệu, nullable, default, enum, PK, unique, index, FK và check. Me
 
 Test trong `backend/tests/test_models.py` kiểm tra cấu hình ORM, biên dịch toàn
 bộ CREATE/DROP schema với PostgreSQL dialect và giá trị enum được lưu. Đây là
-kiểm tra không kết nối; chưa chạy migration hay kiểm tra constraint trên một
-PostgreSQL server thật.
+kiểm tra không kết nối. Ngoài ra đã chạy migration đầu tiên trên PostgreSQL 18,
+kiểm tra đủ 25 bảng/15 enum và Alembic check không phát hiện drift so với model.
 
 ## Việc còn lại
 
-1. Cấu hình PostgreSQL, driver, session và Alembic; tạo migration đầu tiên từ
-   `Base.metadata` rồi kiểm tra trên database phát triển.
+1. Khi đổi máy, chạy [setup](database-setup.md). Driver/Session/Alembic đã có,
+   migration đầu tiên là snapshot cố định, không tạo từ model lúc chạy.
 2. Xác nhận nullability, múi giờ và cách sinh UUID trước khi áp dụng migration.
    Các trường tiền trong transaction đang là `int` trong khi số dư ví dùng
    `bigint`; giữ nguyên DBML nhưng cần chốt giới hạn trước khi dùng dữ liệu thật.
-3. Xây service cho các quy tắc DBML giao cho BE: phân quyền, subscription đúng
-   loại/chủ sở hữu, booking có ít nhất một buổi, xung đột lịch, xét kết quả học,
-   cập nhật ví/quyết toán nguyên tử và chống giải ngân lặp.
+3. Hoàn thiện TODO trong `app/modules/`: đã có 24 hàm mẫu cho đọc dữ liệu có quyền
+   và một số thao tác ghi. Chưa có đầy đủ các quy tắc booking ít nhất một buổi,
+   xung đột lịch, xét kết quả học, cập nhật ví/quyết toán và chống giải ngân lặp.
 4. Check không cho bình luận tự làm cha không ngăn chu trình nhiều bình luận;
    xử lý quy tắc này ở service nếu cho phép đổi `parent_id`.
+
+## Module và luồng dữ liệu
+
+Từ 27/10/2026, mỗi model có một file nghiệp vụ tương ứng trong
+`app/modules/{users,tutoring,learning,community,finance}/`. Một file có một hàm
+mẫu, các tính năng chưa viết được ghi bằng TODO kèm cách triển khai.
+
+- [Danh mục module và quy ước Session/quyền](modules.md).
+- [Luồng dữ liệu DB, transaction và các điểm cần chốt](database-flow.md).
+
+Các module không sửa cấu trúc 24 model và không tự tạo bảng hoặc commit.
+Auth bổ sung bảng AuthSession ngoài DBML; xem [schema và luồng JWT](security.md).
+AuthSession đã nằm trong migration đầu tiên và đã tạo trên database local.

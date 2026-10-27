@@ -1,6 +1,7 @@
 """Import all mapped tables so Base.metadata is complete for migrations."""
 
 from app.models.base import Base
+from app.models.auth_session import AuthSession
 from app.models.action_log import ActionLog
 from app.models.attendance import Attendance
 from app.models.booking import Booking
@@ -27,7 +28,7 @@ from app.models.wallet import Wallet
 from app.models.wallet_snapshot import WalletSnapshot
 
 __all__ = [
-    "Base", "ActionLog", "Attendance", "Booking", "BookingSession", "BookingSettlement",
+    "Base", "AuthSession", "ActionLog", "Attendance", "Booking", "BookingSession", "BookingSettlement",
     "CashOrder", "Comment", "CommentReport", "Course", "CourseProgress", "CreditPackage",
     "Dispute", "ExternalTransaction", "InternalTransaction", "Lesson", "Message",
     "PaymentMethod", "Post", "RoleRequest", "TutoringPackage", "User", "UserSubscription",

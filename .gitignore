@@ -198,3 +198,6 @@ dist/
 # Local files
 uploads/
 *.log
+.local/
+backups/
+*.dump

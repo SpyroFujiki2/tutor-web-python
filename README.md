@@ -2,7 +2,9 @@
 
 Website dịch vụ gia sư và khóa học, gồm frontend React/Vite và backend FastAPI.
 Scaffold hiện có một luồng hoàn chỉnh: React gọi `GET /api/health`, hiển thị trạng
-thái tải, kết quả hoặc lỗi và cho phép kiểm tra lại. Chưa có dữ liệu nghiệp vụ.
+thái tải, kết quả hoặc lỗi và cho phép kiểm tra lại. Backend có 24 model DBML,
+model phiên JWT bổ sung và 29 hàm nghiệp vụ/auth theo 6 nhóm; chưa có API nghiệp
+vụ. Backend đã kết nối PostgreSQL local, có Session và Alembic để dựng schema.
 
 ## Cấu trúc
 
@@ -11,13 +13,29 @@ backend/
   app/
     main.py              # Tạo app, middleware, đăng ký router
     core/config.py       # Đọc cấu hình và kiểm tra CORS origins
+    core/database.py     # PostgreSQL engine, pool và Session factory
+    core/security.py     # Hash/verify/rehash Argon2id, tạo/kiểm tra JWT
     api/router.py        # Gom route dưới /api
+    api/dependencies/    # Session từng request, JWT/current_user
     api/routes/health.py # Endpoint theo tính năng
     schemas/health.py    # Hợp đồng response
-    models/              # 24 ORM model từ DBML, mỗi bảng một file
-  tests/                 # Kiểm tra API và cấu hình bằng unittest
+    schemas/auth.py      # LoginRequest/TokenResponse, chưa nối route login
+    models/              # 24 model DBML + AuthSession cho JWT rotation
+    modules/             # Mỗi file một hàm mẫu + TODO hướng dẫn phần còn lại
+      users/             # User, ngân hàng, audit, subscription
+      tutoring/          # Gói gia sư, booking, buổi học, chat, tranh chấp
+      learning/          # Khóa/bài học, điểm danh, tiến độ
+      community/         # Bài viết, bình luận, nâng role, báo cáo
+      finance/           # Ví, quyết toán, ledger, nạp/rút, snapshot
+      auth/              # Xác thực email/mật khẩu, cấp token, refresh và logout
+  tests/                 # API/config, metadata và logic module bằng unittest
   requirements.txt       # Dependency runtime trực tiếp
   requirements-dev.txt   # Thêm HTTP client phục vụ kiểm tra
+  migrations/            # Migration cố định, hiện 25 bảng + 15 enum
+  scripts/               # Sinh .env, tạo role/database, kiểm tra kết nối
+scripts/setup.py          # Cài trên Windows/Linux/macOS: native hoặc Docker
+alembic.ini               # Cấu hình migration, không chứa mật khẩu
+compose.yaml              # PostgreSQL 18 tùy chọn trên máy mới
 frontend/
   src/
     App.jsx              # Khung trang
@@ -27,11 +45,23 @@ frontend/
   tests/                 # Kiểm tra HTTP client bằng Node test runner
 docs/
   code-review.md          # Kết quả review thủ công và việc cần làm
+  models.md               # Ánh xạ 24 model từ DBML
+  modules.md              # Danh mục hàm mẫu, trách nhiệm và cách phát triển tiếp
+  database-flow.md        # Luồng đọc/ghi DB, transaction và quyết định cần chốt
+  security.md             # JWT Bearer, refresh rotation, cấu hình và luồng auth
+  database-setup.md       # Cài máy mới, pgAdmin, backup/restore, migration
 ```
 
 Đã ánh xạ DBML thành SQLAlchemy model cho PostgreSQL; xem [hướng dẫn models](docs/models.md).
-Chưa kết nối database hoặc tạo migration. Khi thêm tính năng có database, tách
-nghiệp vụ vào service và truy cập dữ liệu vào repository theo nhu cầu thực tế.
+Mỗi file trong `app/modules/` có một hàm mẫu và comment TODO kèm cách làm các
+tính năng còn lại. Xem [danh mục module](docs/modules.md) và
+[luồng dữ liệu trong DB](docs/database-flow.md).
+
+Module nhận `Session` từ caller, không tự commit. Ba mẫu ghi tin nhắn, báo cáo
+bình luận và audit log cùng các hàm auth nhận transaction do caller quản lý.
+Đã có kết nối PostgreSQL/Session và migration, chưa gắn route nghiệp vụ. TODO
+không phải tính năng đã hoàn thành. Xem [JWT Bearer và refresh/renew](docs/security.md) để tích hợp
+token và lưu quyết định thu hồi phiên đúng transaction.
 
 ## Cấu hình môi trường
 
@@ -47,6 +77,16 @@ Không chạy lệnh sao chép nếu đã có cấu hình riêng. Không commit 
 | --- | --- | --- |
 | `VITE_API_BASE_URL` | Base URL backend, không kèm `/api`; bỏ dấu `/` cuối | `http://localhost:8000` |
 | `CORS_ORIGINS` | Origin frontend phân cách bằng dấu phẩy, gồm scheme, hostname và port nếu có | `http://localhost:5173,http://127.0.0.1:5173` |
+| `DATABASE_URL` | URL PostgreSQL chứa user/password/host/port/database; nguồn cấu hình DB duy nhất | Setup sinh nếu thiếu |
+| `JWT_SECRET_KEY` | Secret JWT chỉ ở backend, ít nhất 32 byte; bắt buộc khi dùng auth | Không có default |
+| `JWT_ISSUER`, `JWT_AUDIENCE` | Issuer/audience được chấp nhận | `tutor-web`, `tutor-web-api` |
+| `JWT_ACCESS_TTL_SECONDS` | Hạn access JWT | `900` |
+| `JWT_REFRESH_TTL_SECONDS` | Hạn tuyệt đối phiên refresh | `604800` |
+
+`.env.example` chỉ khai báo hai biến bắt buộc DATABASE_URL và JWT_SECRET_KEY.
+Các biến khác trong bảng là tùy chọn, chỉ thêm khi đổi giá trị mặc định.
+SSL/timeout nếu cần đặt ngay trong URL, ví dụ `?sslmode=require&connect_timeout=8`.
+Script init_env tự gộp DB_* cũ thành URL, bỏ tham số trùng và giữ nguyên mật khẩu.
 
 Backend đọc `.env` bằng đường dẫn tuyệt đối; biến môi trường của process được ưu
 tiên hơn `.env`. `CORS_ORIGINS` rỗng sẽ không cho phép origin ngoài; wildcard,
@@ -61,17 +101,23 @@ reverse proxy phục vụ frontend và `/api` cùng origin.
 
 ## Chạy trên Windows / PowerShell
 
-Dùng Python 3.14 và Node.js 24 như môi trường phát triển hiện tại. Từ thư mục gốc:
+Dùng Python 3.14, PostgreSQL 18 và Node.js 24. Máy đã có server PostgreSQL, từ gốc repo:
 
 ```powershell
-python -m venv backend/.venv
-.\backend\.venv\Scripts\python.exe -m pip install -r backend/requirements-dev.txt
+python scripts/setup.py
 .\backend\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --app-dir backend
 ```
 
-Nếu đã có `backend/.venv`, bỏ qua lệnh tạo venv. Backend tại `http://localhost:8000`,
-Swagger UI tại `http://localhost:8000/docs`, health tại `http://localhost:8000/api/health`.
-Môi trường chỉ chạy ứng dụng có thể cài `backend/requirements.txt`.
+Setup tạo venv/.env nếu thiếu, sinh secret riêng và kiểm tra DATABASE_URL. Chỉ
+hỏi mật khẩu postgres bằng input ẩn khi cần tạo role/database; nếu đã kết nối
+được thì không cần admin. Giữ nguyên secret đã cấu hình. Backend tại
+`http://localhost:8000`, docs tại `/docs`, liveness `/api/health`, DB readiness
+`/api/ready`. Nếu database gián đoạn hoặc chưa migrate, readiness trả 503.
+
+Máy mới dùng Docker có thể chạy `python scripts/setup.py --docker`; nếu cổng
+5432 bận, thêm `--db-port 5433`. Linux/macOS dùng `backend/.venv/bin/python` để
+chạy backend. Chi tiết cài, kết nối pgAdmin và chuyển dữ liệu:
+[database-setup.md](docs/database-setup.md).
 
 Mở terminal thứ hai:
 
@@ -104,17 +150,28 @@ backend rồi bấm “Kiểm tra lại” để xem lỗi; chạy backend trở
 Client giới hạn mỗi request ở 10 giây và hủy request khi component unmount.
 Browser cần hỗ trợ `AbortSignal.timeout` và `AbortSignal.any`.
 
+Backend hiện có 69 test: 13 API/config, 3 metadata, 9 logic module, 5 password,
+11 xác thực/schema, 16 JWT/session/Bearer và 12 database/setup/readiness. Test module
+dùng SQLite trong bộ nhớ với metadata fixture thích nghi; không thay model
+production. Đã migrate/check và smoke test Session/JWT trên PostgreSQL thật;
+chưa có kiểm thử cạnh tranh nhiều worker. Dependency cũng đã được resolve với
+`pip --dry-run --ignore-installed` để kiểm tra khả năng cài môi trường mới.
+
 ## Bước tiếp theo
 
 1. Chốt luồng MVP và vai trò: học viên/phụ huynh, gia sư, quản trị; xác định đăng ký
    tư vấn hay đặt lịch học trực tiếp là luồng chính.
-2. Cấu hình PostgreSQL, session và Alembic; rà soát rồi tạo migration từ 24 model
-   đã ánh xạ theo DBML. Bổ sung repository theo tính năng thực tế.
-3. Thêm xác thực và phân quyền; chọn session cookie hay token trước khi bổ sung
-   CORS credentials, CSRF hoặc header Authorization.
-4. Làm một tính năng từ đầu đến cuối: danh sách gia sư → bộ lọc → hồ sơ → gửi yêu
-   cầu học. Thêm validation và test theo quy tắc nghiệp vụ được chốt.
+2. PostgreSQL/Session/Alembic đã có; dùng setup khi đổi máy và tạo migration mới
+   khi đổi model. Chốt idempotency và quy tắc tiền trong
+   [các quyết định còn thiếu](docs/database-flow.md#các-quyết-định-còn-thiếu-trước-khi-viết-luồng-ghi-thật).
+3. Verify/rehash mật khẩu, authenticate_user, dummy hash dùng lại, EmailStr và TTL
+   dương đã có. Tiếp theo nối router auth và rate limit
+   trên nền JWT Bearer/refresh đã viết. CORS đã cho GET/POST và Authorization; chưa bật
+   cookie credentials. auth_sessions đã nằm trong migration đầu tiên.
+4. Chọn một use case trong module để hoàn thiện TODO, request/response schema,
+   router và kiểm thử từ đầu đến cuối. Với booking, ưu tiên tạo đơn + buổi học,
+   xác thực chủ sở hữu và luồng chat trước khi nối thanh toán.
 5. Bổ sung CI, logging, xử lý lỗi thống nhất, kiểm thử trình duyệt và cấu hình
-   deploy. Health hiện tại chỉ xác nhận process/API hoạt động, chưa kiểm tra DB.
+   deploy. Dùng health cho liveness, ready cho DB/schema.
 
 Chi tiết review và giới hạn xem [docs/code-review.md](docs/code-review.md).

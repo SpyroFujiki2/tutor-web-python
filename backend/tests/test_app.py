@@ -87,6 +87,15 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertNotIn("access-control-allow-origin", response.headers)
 
+    def test_preflight_accepts_bearer_header_for_post(self):
+        response = self.client.options("/api/auth/refresh", headers={
+            "Origin": "http://localhost:5173",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "Authorization,Content-Type",
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Authorization", response.headers["access-control-allow-headers"])
+
 
 if __name__ == "__main__":
     unittest.main()
