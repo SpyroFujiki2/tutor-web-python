@@ -1,7 +1,7 @@
 # Luồng dữ liệu trong database
 
 > Các luồng dưới đây là ghi chép thiết kế ban đầu. Xem
-> [trạng thái triển khai](implementation.md) và OpenAPI `/docs` cho chức năng
+> [trạng thái triển khai](implementation.md) và OpenAPI `/api/docs` cho chức năng
 > đã hoàn thiện. Các TODO gốc được giữ nguyên.
 
 ## Phạm vi hiện tại và đích triển khai

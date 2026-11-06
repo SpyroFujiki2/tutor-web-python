@@ -46,7 +46,11 @@ class VNPAYSettings:
 
 
 def get_vnpay_settings() -> VNPAYSettings | None:
-    values = {**dotenv_values(ROOT_DIR / '.env'), **os.environ}
+    values = {
+        **dotenv_values(ROOT_DIR / '.env', encoding='utf-8-sig'),
+        **dotenv_values(ROOT_DIR / '.env.local', encoding='utf-8-sig'),
+        **os.environ,
+    }
     if not values.get('VNPAY_TMN_CODE') and not values.get('VNPAY_HASH_SECRET'):
         return None
     return VNPAYSettings(

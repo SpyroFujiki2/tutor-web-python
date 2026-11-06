@@ -7,7 +7,7 @@ và Alembic. Xem [trạng thái triển khai và cách tạo quản trị](docs/
 để phân biệt chức năng đã có với tích hợp tài chính/video đang làm tiếp.
 
 Các khối TODO gốc được giữ nguyên theo yêu cầu, kể cả khi chức năng đã được
-triển khai ở service mới. OpenAPI `/docs` và `docs/implementation.md` là hợp đồng
+triển khai ở service mới. OpenAPI `/api/docs` và `docs/implementation.md` là hợp đồng
 hiện tại; các tài liệu thiết kế cũ được giữ làm bối cảnh.
 
 Tích hợp đang dùng: [VNPAY sandbox và video Google Drive](docs/vnpay-drive.md).
@@ -98,8 +98,8 @@ Các biến khác trong bảng là tùy chọn, chỉ thêm khi đổi giá tr�
 SSL/timeout nếu cần đặt ngay trong URL, ví dụ `?sslmode=require&connect_timeout=8`.
 Script init_env tự gộp DB_* cũ thành URL, bỏ tham số trùng và giữ nguyên mật khẩu.
 
-Backend đọc `.env` bằng đường dẫn tuyệt đối; biến môi trường của process được ưu
-tiên hơn `.env`. `CORS_ORIGINS` rỗng sẽ không cho phép origin ngoài; wildcard,
+Backend đọc `.env` rồi `.env.local` bằng đường dẫn tuyệt đối; biến môi trường
+của process được ưu tiên hơn cả hai file. `CORS_ORIGINS` rỗng sẽ không cho phép origin ngoài; wildcard,
 credentials và đường dẫn trong origin bị từ chối khi khởi động. Khai báo các
 origin production cần dùng trong môi trường deploy; `.env.example` có các domain
 đang được dùng trong cấu hình dự án.
@@ -109,6 +109,10 @@ khi build: chỉ chứa thông tin public. Khởi động lại dev server sau k
 build lại frontend khi thay biến lúc triển khai. Mặc định frontend gọi `/api`
 cùng origin. Khi deploy, cấu hình reverse proxy cho `/api` hoặc đặt
 `VITE_API_BASE_URL` trỏ tới backend công khai.
+
+Kết nối backend tới Supabase qua `DATABASE_URL`; project URL và publishable
+key của frontend không phải thông tin đăng nhập PostgreSQL. Xem
+[hướng dẫn Supabase](docs/supabase.md) để cấu hình SSL, migrate và kiểm tra.
 
 ## Chạy trên Windows / PowerShell
 
@@ -122,7 +126,7 @@ python scripts/setup.py
 Setup tạo venv/.env nếu thiếu, sinh secret riêng và kiểm tra DATABASE_URL. Chỉ
 hỏi mật khẩu postgres bằng input ẩn khi cần tạo role/database; nếu đã kết nối
 được thì không cần admin. Giữ nguyên secret đã cấu hình. Backend tại
-`http://localhost:8000`, docs tại `/docs`, liveness `/api/health`, DB readiness
+`http://localhost:8000`, docs tại `/api/docs`, liveness `/api/health`, DB readiness
 `/api/ready`. Nếu database gián đoạn hoặc chưa migrate, readiness trả 503.
 
 Máy mới dùng Docker có thể chạy `python scripts/setup.py --docker`; nếu cổng
@@ -187,3 +191,10 @@ chưa có kiểm thử cạnh tranh nhiều worker. Dependency cũng đã đư�
    deploy. Dùng health cho liveness, ready cho DB/schema.
 
 Chi tiết review và giới hạn xem [docs/code-review.md](docs/code-review.md).
+
+## Deploy trên Vercel
+
+Repo có cấu hình [Vercel Services](docs/vercel.md): một project, frontend Vite ở `/`,
+backend FastAPI ở `/api/*`. Chọn Root Directory là gốc repo. Xem hướng dẫn để cấu hình
+PostgreSQL/Supabase, biến môi trường, kiểm tra bằng `vercel dev`, URL VNPAY và giới hạn
+lưu file đính kèm. Giao diện gọi API cùng domain; không cần URL backend riêng.

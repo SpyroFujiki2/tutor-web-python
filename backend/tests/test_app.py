@@ -58,9 +58,17 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(response.json(), {"status": "ok", "message": "FastAPI đang hoạt động"})
 
     def test_openapi_exposes_health_response_schema(self):
-        schema = self.client.get("/openapi.json").json()
+        schema = self.client.get("/api/openapi.json").json()
         self.assertIn("/api/health", schema["paths"])
         self.assertIn("HealthResponse", schema["components"]["schemas"])
+
+    def test_documentation_stays_under_the_public_api_prefix(self):
+        for path in ("/api/docs", "/api/redoc"):
+            with self.subTest(path=path):
+                response = self.client.get(path)
+                self.assertEqual(response.status_code, 200)
+                self.assertIn("/api/openapi.json", response.text)
+        self.assertEqual(self.client.get("/api/missing-route").status_code, 404)
 
     def test_allowed_origin_gets_cors_header(self):
         response = self.client.get("/api/health", headers={"Origin": "http://localhost:5173"})

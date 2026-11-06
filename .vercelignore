@@ -1,0 +1,16 @@
+# Runtime configuration is supplied through Vercel environment variables.
+**/.env
+**/.env.*
+**/.venv/
+**/venv/
+**/node_modules/
+**/__pycache__/
+**/.local/
+**/.test-tmp/
+**/uploads/
+**/backups/
+**/*.dump
+**/*.log
+frontend/dist/
+.git/
+.vercel/

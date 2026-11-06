@@ -1,7 +1,7 @@
 # Module nghiệp vụ — 27/10/2026
 
 > Đây là ghi chép thiết kế ban đầu. Code đã được mở rộng; xem
-> [trạng thái triển khai](implementation.md) và OpenAPI `/docs` cho chức năng
+> [trạng thái triển khai](implementation.md) và OpenAPI `/api/docs` cho chức năng
 > hiện tại. Các TODO gốc được giữ nguyên.
 
 ## Phần đã có

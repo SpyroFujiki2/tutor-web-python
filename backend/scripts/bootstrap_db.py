@@ -31,7 +31,12 @@ def main() -> None:
         print("Existing project DB connection verified; administrator credentials are not needed.")
         return
     except SQLAlchemyError:
-        pass
+        if settings.is_supabase:
+            raise SystemExit(
+                "Supabase connection failed. Check DATABASE_URL in .env/.env.local "
+                "or the process environment. Hosted databases must be provisioned in "
+                "Supabase; local administrator bootstrap was not attempted."
+            ) from None
     finally:
         engine.dispose()
     admin_password = os.getenv("PG_ADMIN_PASSWORD")

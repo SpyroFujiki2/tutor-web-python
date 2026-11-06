@@ -3,7 +3,7 @@
 Ứng dụng đã nối React với API nghiệp vụ FastAPI. Schema gốc vẫn gồm 24 bảng
 DBML và bảng bổ sung `auth_sessions`; không có migration mới trong đợt này.
 Các khối TODO trong code gốc được giữ nguyên theo yêu cầu. TODO là ghi chú thiết
-kế ban đầu; danh sách dưới đây và OpenAPI `/docs` phản ánh code đang chạy.
+kế ban đầu; danh sách dưới đây và OpenAPI `/api/docs` phản ánh code đang chạy.
 
 ## Tài khoản và xác thực
 

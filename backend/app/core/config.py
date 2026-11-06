@@ -7,8 +7,18 @@ from dotenv import dotenv_values
 from sqlalchemy import URL, make_url
 from sqlalchemy.exc import ArgumentError
 
-ROOT_DIR = Path(__file__).resolve().parents[3]
+BACKEND_DIR = Path(__file__).resolve().parents[2]
+ROOT_DIR = BACKEND_DIR.parent
 DEFAULT_CORS_ORIGINS = "http://localhost:5173,http://127.0.0.1:5173"
+
+
+def runtime_values() -> dict:
+    """Share Vite's base/local override order; seed credentials are not runtime config."""
+    return {
+        **dotenv_values(ROOT_DIR / ".env", encoding="utf-8-sig"),
+        **dotenv_values(ROOT_DIR / ".env.local", encoding="utf-8-sig"),
+        **os.environ,
+    }
 
 
 def parse_cors_origins(value: str) -> tuple[str, ...]:
@@ -42,7 +52,7 @@ class Settings:
 
 def get_settings() -> Settings:
     # The process environment takes precedence without mutating os.environ.
-    values = {**dotenv_values(ROOT_DIR / ".env"), **os.environ}
+    values = runtime_values()
     cors_origins = values.get("CORS_ORIGINS", DEFAULT_CORS_ORIGINS)
     if cors_origins is None:
         cors_origins = ""
@@ -68,7 +78,7 @@ class JWTSettings:
 
 def get_jwt_settings() -> JWTSettings:
     # Read on demand: public health does not require an auth key, auth always does.
-    values = {**dotenv_values(ROOT_DIR / ".env"), **os.environ}
+    values = runtime_values()
     return JWTSettings(
         secret_key=values.get("JWT_SECRET_KEY") or "",
         issuer=values.get("JWT_ISSUER") or "tutor-web",
@@ -82,6 +92,11 @@ def get_jwt_settings() -> JWTSettings:
 class DatabaseSettings:
     url: URL = field(repr=False)
     connect_timeout: int = 5
+
+    @property
+    def is_supabase(self) -> bool:
+        host = (self.url.host or "").lower().rstrip(".")
+        return host.endswith(".supabase.co") or host.endswith(".supabase.com")
 
     def __post_init__(self) -> None:
         if self.url.drivername != "postgresql+psycopg":
@@ -99,14 +114,27 @@ def parse_database_url(value: str) -> DatabaseSettings:
         raise ValueError("DATABASE_URL must be configured")
     try:
         url = make_url(value)
-        if url.drivername == "postgresql":
+        if url.drivername in {"postgres", "postgresql"}:
             url = url.set(drivername="postgresql+psycopg")
         timeout = int(url.query.get("connect_timeout", "5"))
-        return DatabaseSettings(url=url, connect_timeout=timeout)
+        settings = DatabaseSettings(url=url, connect_timeout=timeout)
+        if settings.is_supabase:
+            sslmode = url.query.get("sslmode", "require")
+            if sslmode not in {"require", "verify-ca", "verify-full"}:
+                raise ValueError("Supabase connections require SSL")
+            settings = DatabaseSettings(
+                url=url.update_query_dict({"sslmode": sslmode}), connect_timeout=timeout,
+            )
+        return settings
     except (ValueError, TypeError, ArgumentError):
         raise ValueError("DATABASE_URL must be a valid PostgreSQL URL with credentials and a positive timeout") from None
 
 
 def get_database_settings() -> DatabaseSettings:
-    values = {**dotenv_values(ROOT_DIR / ".env"), **os.environ}
+    values = runtime_values()
+    if not values.get("DATABASE_URL") and (values.get("SUPABASE_URL") or values.get("VITE_SUPABASE_URL")):
+        raise ValueError(
+            "Set DATABASE_URL to the PostgreSQL connection string from Supabase Connect. "
+            "The Supabase project URL and publishable key are not database credentials."
+        )
     return parse_database_url(values.get("DATABASE_URL") or "")

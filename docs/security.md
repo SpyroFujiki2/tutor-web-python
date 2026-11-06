@@ -51,7 +51,7 @@ logout, reuse và status user. Quyền sở hữu/phân công do module nghiệp
 
 Đã có Session, migration và router auth. Dependency get_current_user nối
 JWT/phiên/user qua DB. Frontend hiện chưa có form đăng nhập; có thể gọi API qua
-`/docs` hoặc HTTP client. user_id tự client khai báo không phải xác thực.
+`/api/docs` hoặc HTTP client. user_id tự client khai báo không phải xác thực.
 
 ## Endpoint đã triển khai
 

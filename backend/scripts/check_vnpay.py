@@ -29,7 +29,11 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--probe', action='store_true', help='Check public API/IPN without creating a transaction')
     args = parser.parse_args(argv)
-    values = {**dotenv_values(ROOT_DIR / '.env'), **os.environ}
+    values = {
+        **dotenv_values(ROOT_DIR / '.env', encoding='utf-8-sig'),
+        **dotenv_values(ROOT_DIR / '.env.local', encoding='utf-8-sig'),
+        **os.environ,
+    }
     missing = [name for name in ('VNPAY_TMN_CODE', 'VNPAY_HASH_SECRET') if not values.get(name)]
     try:
         settings = get_vnpay_settings()

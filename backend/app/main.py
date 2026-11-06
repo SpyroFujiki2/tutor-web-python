@@ -31,7 +31,11 @@ def create_app(
             engine.dispose()
             application.state.session_factory = None
 
-    application = FastAPI(title="Tutor Web API", version="0.1.0", lifespan=lifespan)
+    application = FastAPI(
+        title="Tutor Web API", version="0.1.0", lifespan=lifespan,
+        docs_url="/api/docs", redoc_url="/api/redoc", openapi_url="/api/openapi.json",
+        swagger_ui_oauth2_redirect_url="/api/docs/oauth2-redirect",
+    )
     application.state.login_rate_limiter = LoginRateLimiter()
     application.add_middleware(
         CORSMiddleware,

@@ -16,7 +16,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.api.dependencies.database import get_session
 from app.core.config import DatabaseSettings, ROOT_DIR, Settings, get_database_settings
-from app.core.database import create_session_factory
+from app.core.database import create_session_factory, expected_schema_heads
 from app.main import create_app
 from scripts import init_env
 
@@ -141,7 +141,8 @@ class DatabaseRequestTests(unittest.TestCase):
         self.addCleanup(self.engine.dispose)
         with self.engine.begin() as connection:
             connection.execute(text("CREATE TABLE alembic_version (version_num VARCHAR(32) PRIMARY KEY)"))
-            connection.execute(text("INSERT INTO alembic_version VALUES ('0001_initial_schema')"))
+            for head in expected_schema_heads():
+                connection.execute(text("INSERT INTO alembic_version VALUES (:head)"), {"head": head})
             connection.execute(text("CREATE TABLE auth_sessions (id INTEGER PRIMARY KEY)"))
         self.settings = DatabaseSettings(URL.create(
             "postgresql+psycopg", username="test", password="example", host="127.0.0.1", database="test",
