@@ -201,3 +201,4 @@ uploads/
 .local/
 backups/
 *.dump
+.test-tmp/

@@ -1,5 +1,9 @@
 # Luồng dữ liệu trong database
 
+> Các luồng dưới đây là ghi chép thiết kế ban đầu. Xem
+> [trạng thái triển khai](implementation.md) và OpenAPI `/docs` cho chức năng
+> đã hoàn thiện. Các TODO gốc được giữ nguyên.
+
 ## Phạm vi hiện tại và đích triển khai
 
 Model mô tả 24 bảng DBML và auth_sessions bổ sung. Module có 24 hàm nghiệp vụ

@@ -1,16 +1,20 @@
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import JWTSettings
 from app.core.security import TokenPair, create_token_pair, decode_token, hash_refresh_token
-from app.models import AuthSession
+from app.models import AuthSession, User
 from app.modules.users.user import get_active_user
 
 
 def issue_login_tokens(session: Session, user_id: UUID, settings: JWTSettings) -> TokenPair:
     """Only call AFTER password/MFA verification; user_id alone is not authentication."""
+    # Serialize issuing new sessions with password changes and logout-all.
+    session.scalar(select(User).where(User.id == user_id).with_for_update()
+                   .execution_options(populate_existing=True))
     get_active_user(session, user_id)
     session_id = uuid4()
     tokens = create_token_pair(user_id, session_id, settings)

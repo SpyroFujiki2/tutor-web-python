@@ -1,10 +1,20 @@
 # Tutor Web
 
 Website dịch vụ gia sư và khóa học, gồm frontend React/Vite và backend FastAPI.
-Scaffold hiện có một luồng hoàn chỉnh: React gọi `GET /api/health`, hiển thị trạng
-thái tải, kết quả hoặc lỗi và cho phép kiểm tra lại. Backend có 24 model DBML,
-model phiên JWT bổ sung và 29 hàm nghiệp vụ/auth theo 6 nhóm; chưa có API nghiệp
-vụ. Backend đã kết nối PostgreSQL local, có Session và Alembic để dựng schema.
+Đã nối các API tài khoản, khóa học, gia sư, cộng đồng và quản trị với giao diện.
+Backend dùng 24 model DBML và AuthSession cho JWT rotation, PostgreSQL, Session
+và Alembic. Xem [trạng thái triển khai và cách tạo quản trị](docs/implementation.md)
+để phân biệt chức năng đã có với tích hợp tài chính/video đang làm tiếp.
+
+Các khối TODO gốc được giữ nguyên theo yêu cầu, kể cả khi chức năng đã được
+triển khai ở service mới. OpenAPI `/docs` và `docs/implementation.md` là hợp đồng
+hiện tại; các tài liệu thiết kế cũ được giữ làm bối cảnh.
+
+Tích hợp đang dùng: [VNPAY sandbox và video Google Drive](docs/vnpay-drive.md).
+Seed Drive cần đủ 10 link thật; VNPAY cần merchant credentials trong `.env`.
+Chi tiết phần gia sư đã hoàn thiện: [module tutor](docs/tutoring.md).
+Tài chính nội bộ và quy tắc công nợ/đối soát: [finance.md](docs/finance.md).
+Seed 7 tài khoản theo role và 3 gói gia sư giá ngẫu nhiên: [seed-data.md](docs/seed-data.md).
 
 ## Cấu trúc
 
@@ -19,7 +29,7 @@ backend/
     api/dependencies/    # Session từng request, JWT/current_user
     api/routes/health.py # Endpoint theo tính năng
     schemas/health.py    # Hợp đồng response
-    schemas/auth.py      # LoginRequest/TokenResponse, chưa nối route login
+    schemas/auth.py      # Hợp đồng login/refresh/token/current user
     models/              # 24 model DBML + AuthSession cho JWT rotation
     modules/             # Mỗi file một hàm mẫu + TODO hướng dẫn phần còn lại
       users/             # User, ngân hàng, audit, subscription
@@ -59,7 +69,7 @@ tính năng còn lại. Xem [danh mục module](docs/modules.md) và
 
 Module nhận `Session` từ caller, không tự commit. Ba mẫu ghi tin nhắn, báo cáo
 bình luận và audit log cùng các hàm auth nhận transaction do caller quản lý.
-Đã có kết nối PostgreSQL/Session và migration, chưa gắn route nghiệp vụ. TODO
+Đã có kết nối PostgreSQL/Session, migration và router auth, chưa gắn các route nghiệp vụ khác. TODO
 không phải tính năng đã hoàn thành. Xem [JWT Bearer và refresh/renew](docs/security.md) để tích hợp
 token và lưu quyết định thu hồi phiên đúng transaction.
 
@@ -75,7 +85,7 @@ Không chạy lệnh sao chép nếu đã có cấu hình riêng. Không commit 
 
 | Biến | Ý nghĩa | Khi không khai báo |
 | --- | --- | --- |
-| `VITE_API_BASE_URL` | Base URL backend, không kèm `/api`; bỏ dấu `/` cuối | `http://localhost:8000` |
+| `VITE_API_BASE_URL` | Base URL backend, không kèm `/api`; bỏ dấu `/` cuối | Cùng origin frontend; Vite proxy `/api` tới `127.0.0.1:8000` |
 | `CORS_ORIGINS` | Origin frontend phân cách bằng dấu phẩy, gồm scheme, hostname và port nếu có | `http://localhost:5173,http://127.0.0.1:5173` |
 | `DATABASE_URL` | URL PostgreSQL chứa user/password/host/port/database; nguồn cấu hình DB duy nhất | Setup sinh nếu thiếu |
 | `JWT_SECRET_KEY` | Secret JWT chỉ ở backend, ít nhất 32 byte; bắt buộc khi dùng auth | Không có default |
@@ -96,8 +106,9 @@ origin production cần dùng trong môi trường deploy; `.env.example` có c�
 
 Vite đọc `.env` từ thư mục gốc qua `envDir`. Biến `VITE_` được đưa vào mã frontend
 khi build: chỉ chứa thông tin public. Khởi động lại dev server sau khi sửa `.env`;
-build lại frontend khi thay biến lúc triển khai. Đặt `VITE_API_BASE_URL=` nếu
-reverse proxy phục vụ frontend và `/api` cùng origin.
+build lại frontend khi thay biến lúc triển khai. Mặc định frontend gọi `/api`
+cùng origin. Khi deploy, cấu hình reverse proxy cho `/api` hoặc đặt
+`VITE_API_BASE_URL` trỏ tới backend công khai.
 
 ## Chạy trên Windows / PowerShell
 
@@ -150,8 +161,8 @@ backend rồi bấm “Kiểm tra lại” để xem lỗi; chạy backend trở
 Client giới hạn mỗi request ở 10 giây và hủy request khi component unmount.
 Browser cần hỗ trợ `AbortSignal.timeout` và `AbortSignal.any`.
 
-Backend hiện có 69 test: 13 API/config, 3 metadata, 9 logic module, 5 password,
-11 xác thực/schema, 16 JWT/session/Bearer và 12 database/setup/readiness. Test module
+Backend hiện có 80 test: 13 API/config, 3 metadata, 9 logic module, 5 password,
+11 xác thực/schema, 16 JWT/session/Bearer, 12 database/setup/readiness và 11 auth API/rate limit. Test module
 dùng SQLite trong bộ nhớ với metadata fixture thích nghi; không thay model
 production. Đã migrate/check và smoke test Session/JWT trên PostgreSQL thật;
 chưa có kiểm thử cạnh tranh nhiều worker. Dependency cũng đã được resolve với
@@ -164,10 +175,11 @@ chưa có kiểm thử cạnh tranh nhiều worker. Dependency cũng đã đư�
 2. PostgreSQL/Session/Alembic đã có; dùng setup khi đổi máy và tạo migration mới
    khi đổi model. Chốt idempotency và quy tắc tiền trong
    [các quyết định còn thiếu](docs/database-flow.md#các-quyết-định-còn-thiếu-trước-khi-viết-luồng-ghi-thật).
-3. Verify/rehash mật khẩu, authenticate_user, dummy hash dùng lại, EmailStr và TTL
-   dương đã có. Tiếp theo nối router auth và rate limit
-   trên nền JWT Bearer/refresh đã viết. CORS đã cho GET/POST và Authorization; chưa bật
-   cookie credentials. auth_sessions đã nằm trong migration đầu tiên.
+3. API auth đã có `POST /api/auth/login`, `POST /api/auth/refresh`,
+   `POST /api/auth/logout` và `GET /api/auth/me`, kèm rate limit login theo IP
+   trong từng process. Tiếp theo nối form đăng nhập phía frontend và rate limit
+   dùng chung khi triển khai nhiều worker. Xem [hợp đồng API auth](docs/security.md#endpoint-đã-triển-khai).
+   CORS đã cho GET/POST và Authorization; chưa bật cookie credentials.
 4. Chọn một use case trong module để hoàn thiện TODO, request/response schema,
    router và kiểm thử từ đầu đến cuối. Với booking, ưu tiên tạo đơn + buổi học,
    xác thực chủ sở hữu và luồng chat trước khi nối thanh toán.

@@ -3,7 +3,7 @@
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import or_, select
+from sqlalchemy import or_, select, update
 from sqlalchemy.orm import Session
 
 from app.models import UserSubscription
@@ -33,3 +33,15 @@ def list_my_active_subscriptions(session: Session, user_id: UUID) -> list[UserSu
 # vẫn phải xét thời gian thực để không phụ thuộc việc job đã chạy hay chưa.
 # TODO cancel/refund: khóa subscription, cập nhật quyền và giao dịch bù cùng
 # transaction; không dùng việc ẩn Course để hủy quyền đã mua.
+
+
+def expire_subscriptions(session: Session, admin_id: UUID) -> int:
+    from app.models.enums import UserRole
+    admin = get_active_user(session, admin_id)
+    if admin.role not in {UserRole.ADMIN, UserRole.HEAD_ADMIN}:
+        raise PermissionError("Administrator role required")
+    result = session.execute(update(UserSubscription).where(
+        UserSubscription.status == SubscriptionStatus.ACTIVE,
+        UserSubscription.expired_at <= datetime.now(UTC).replace(tzinfo=None),
+    ).values(status=SubscriptionStatus.EXPIRED))
+    return result.rowcount

@@ -130,18 +130,18 @@ def hash_refresh_token(token: str) -> str:
 # Nếu thư viện trả updated_hash sau xác thực thành công, cập nhật User.password_hash
 # cùng transaction đăng nhập; không hash lại rồi so chuỗi vì mỗi hash có salt riêng.
 def verify_password(
-        plain_password: str,
-        hashed_password: str | None
+    plain_password: str,
+    hashed_password: str | None,
 ) -> tuple[bool, str | None]:
-    if not isinstance(plain_password, str) or not isinstance(hashed_password, (str, type(None))) or not plain_password or not hashed_password:
+    if not isinstance(plain_password, str) or not plain_password:
+        return False, None
+    if not isinstance(hashed_password, str) or not hashed_password:
         return False, None
     try:
         return _password_hasher.verify_and_update(plain_password, hashed_password)
     except UnknownHashError:
         return False, None
 
-
-    
 # TODO login/register routes: xác thực mật khẩu trước khi issue_login_tokens;
 # không cấp token chỉ vì client biết user_id; trả response qua schema có allowlist.
 # TODO reset_password/logout_all: revoke tất cả AuthSession của user cùng thay đổi

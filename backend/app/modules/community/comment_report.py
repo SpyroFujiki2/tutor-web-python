@@ -1,34 +1,19 @@
 """Model: comment_report. Mẫu: báo cáo một bình luận mà user được phép đọc."""
 
-from datetime import UTC, datetime
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from sqlalchemy.orm import Session
 
-from app.models import Comment, CommentReport
-from app.models.enums import RequestStatus
-from app.modules.community.post import get_readable_post
-from app.modules.users.user import get_active_user
+from app.models import CommentReport
 
 
 def report_comment(
     session: Session, *, reporter_id: UUID, comment_id: UUID, reason_category: str,
+    reason_details: str = "",
 ) -> CommentReport:
-    get_active_user(session, reporter_id)
-    comment = session.get(Comment, comment_id)
-    if comment is None or comment.is_hidden is not False:
-        raise LookupError("Comment not found or hidden")
-    get_readable_post(session, comment.post_id, reporter_id)
-    if not reason_category.strip():
-        raise ValueError("Report reason is required")
-    report = CommentReport(
-        id=uuid4(), reporter_id=reporter_id, target_id=comment_id,
-        reason_category=reason_category.strip(), status=RequestStatus.PENDING,
-        created_at=datetime.now(UTC).replace(tzinfo=None),
-    )
-    session.add(report)
-    session.flush()
-    return report
+    from app.modules.community.community_service import submit_report
+    return submit_report(session, reporter_id, comment_id,
+                         {"reason_category": reason_category, "reason_details": reason_details})
 
 
 # TODO submit_details: schema giới hạn reason/category; thêm rate limit và chốt
