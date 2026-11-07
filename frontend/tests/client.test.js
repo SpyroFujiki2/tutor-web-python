@@ -93,6 +93,53 @@ test('network failures do not automatically retry financial mutations', async ()
   assert.equal(calls, 1)
 })
 
+test('timeout while reading a successful JSON body is reported as a timeout without retrying the mutation', async () => {
+  const controller = new AbortController()
+  let calls = 0
+  mock.method(AbortSignal, 'timeout', () => controller.signal)
+  mock.method(globalThis, 'fetch', async () => {
+    calls++
+    return { ok: true, status: 200, json: async () => {
+      controller.abort(new DOMException('Body timed out', 'TimeoutError'))
+      throw controller.signal.reason
+    } }
+  })
+  const client = createApiClient('', { storage: null })
+  await assert.rejects(client.request('/me/transfers', { method: 'POST', body: { amount: 10 } }), /phản hồi quá chậm/)
+  assert.equal(calls, 1)
+})
+
+test('caller cancellation during body reading preserves the abort reason', async () => {
+  const controller = new AbortController()
+  mock.method(globalThis, 'fetch', async () => ({ ok: true, status: 200, json: async () => {
+    controller.abort(new DOMException('Page closed', 'AbortError'))
+    throw controller.signal.reason
+  } }))
+  await assert.rejects(createApiClient('', { storage: null }).request('/bookings', { signal: controller.signal }),
+    (error) => error === controller.signal.reason)
+})
+
+test('connection loss during body reading is reported as a network error and preserves the session', async () => {
+  let signedOut = false
+  const client = createApiClient('', { storage: null, onUnauthorized: () => { signedOut = true } })
+  client.setTokens({ access_token: 'access', refresh_token: 'refresh' })
+  mock.method(globalThis, 'fetch', async () => ({ ok: true, status: 200,
+    json: async () => { throw new TypeError('Connection reset') },
+  }))
+  await assert.rejects(client.request('/me/wallets'), /Không kết nối/)
+  assert.equal(client.hasSession(), true)
+  assert.equal(signedOut, false)
+})
+
+test('malformed JSON is distinct from network failure and keeps the HTTP error status', async () => {
+  const client = createApiClient('', { storage: null })
+  mock.method(globalThis, 'fetch', async () => new Response('<html>gateway</html>', { status: 502 }))
+  await assert.rejects(client.request('/courses'), (error) => error instanceof ApiError && error.status === 502)
+  mock.restoreAll()
+  mock.method(globalThis, 'fetch', async () => new Response('{invalid', { status: 200 }))
+  await assert.rejects(client.request('/courses'), (error) => error instanceof ApiError && error.status === 200 && /không hợp lệ/.test(error.message))
+})
+
 test('login failures never attempt token rotation', async () => {
   const client = createApiClient('')
   client.setTokens({ access_token: 'access', refresh_token: 'refresh' })

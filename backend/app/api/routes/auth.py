@@ -14,7 +14,7 @@ from app.modules.auth.login import issue_login_tokens
 from app.modules.auth.logout import cleanup_expired_sessions, revoke_token_session
 from app.modules.auth.refresh import renew_tokens
 from app.schemas.auth import CurrentUserResponse, LoginRequest, RefreshRequest, TokenResponse
-from app.schemas.auth import AuthSessionResponse, ChangeEmailRequest, ChangePasswordRequest, RegisterRequest
+from app.schemas.auth import AuthSessionResponse, ChangeEmailRequest, ChangePasswordRequest, RegisterRequest, ProfileRequest
 from app.modules.users.accounts import change_email, change_password, list_sessions, register_user, revoke_all, revoke_session
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -94,10 +94,18 @@ def logout(
              dependencies=[Depends(limit_login_attempts)])
 def register(payload: RegisterRequest, session: SessionDependency, response: Response):
     with session.begin():
-        user = register_user(session, payload.email, payload.password.get_secret_value())
+        user = register_user(session, payload.email, payload.password.get_secret_value(), payload.full_name)
         result = CurrentUserResponse.model_validate(user)
     response.headers["Cache-Control"] = "no-store"
     return result
+
+
+@router.patch("/profile", response_model=CurrentUserResponse)
+def update_profile(payload: ProfileRequest, session: SessionDependency,
+                   user: Annotated[User, Depends(get_current_user)]):
+    user.full_name = payload.full_name
+    session.commit()
+    return CurrentUserResponse.model_validate(user)
 
 
 @router.post("/change-password", status_code=204, dependencies=[Depends(limit_login_attempts)])

@@ -5,12 +5,14 @@ numbers and counterparty balances are deliberately absent from these contracts.
 """
 
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Literal, get_args, get_type_hints
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, create_model, model_validator
+from pydantic import BaseModel, ConfigDict, Field, create_model, model_validator
 
 from app import models
+from app.schemas.auth import CurrentUserResponse
 
 
 def response(name, model, fields):
@@ -25,9 +27,26 @@ PackageResponse = response("PackageResponse", models.TutoringPackage, "id name p
 CreditPackageResponse = response("CreditPackageResponse", models.CreditPackage, "id name credits price is_active")
 SubscriptionResponse = response("SubscriptionResponse", models.UserSubscription,
                                 "id user_id type title_at_purchase price_at_purchase status activated_at expired_at")
-ProgressResponse = response("ProgressResponse", models.CourseProgress,
+_ProgressFields = response("ProgressFields", models.CourseProgress,
                             "subscription_id course_id progress_percent attendance_ratio midterm_score endterm_score practice_score final_score result completed_at updated_at")
-AttendanceResponse = response("AttendanceResponse", models.Attendance, "subscription_id course_id lesson_id is_absent duration_watched")
+
+
+class LessonProgressResponse(BaseModel):
+    lesson_id: UUID
+    duration_seconds: int | None
+    duration_watched: int
+    has_assignment: bool
+    assignment_completed: bool
+    progress_percent: Decimal
+    is_completed: bool
+
+
+class ProgressResponse(_ProgressFields):
+    lesson_progress: list[LessonProgressResponse] = Field(default_factory=list)
+    is_live: bool | None = None
+
+
+AttendanceResponse = response("AttendanceResponse", models.Attendance, "subscription_id course_id lesson_id is_absent duration_watched assignment_completed")
 BookingResponse = response("BookingResponse", models.Booking,
                            "id package_id customer_id tutor_id subscription_id subject requirements status created_at last_updated")
 SessionResponse = response("SessionResponse", models.BookingSession,
@@ -72,8 +91,29 @@ class CashOrderResponse(_CashOrderFields):
 SettlementResponse = response("SettlementResponse", models.BookingSettlement,
                               "id booking_id tutor_wallet_id total_amount commission_rate platform_fee tutor_income available_amount hold_amount status release_date actual_released_at created_at")
 SnapshotResponse = response("SnapshotResponse", models.WalletSnapshot, "id wallet_id snapshot_date balance_snap holding_snap available_snap")
-LogResponse = response("LogResponse", models.ActionLog,
+_LogFields = response("LogFields", models.ActionLog,
                        "id admin_id target_user_id target_type target_id action_code old_value new_value reason created_at")
+
+
+class LogResponse(_LogFields):
+    admin: CurrentUserResponse | None = None
+    target_user: CurrentUserResponse | None = None
+    action_label: str | None = None
+    target_label: str | None = None
+    reason_label: str | None = None
+    operation: str | None = None
+    operation_label: str = 'Khác'
+
+
+class LogFilterOptions(BaseModel):
+    actions: list[str]
+    target_types: list[str]
+    action_labels: dict[str, str]
+    target_labels: dict[str, str]
+    operations: dict[str, str]
+    entities: dict[str, str]
+
+
 ExternalResponse = response("ExternalResponse", models.ExternalTransaction,
                             "id amount cash_order_id balance_before balance_after created_at")
 

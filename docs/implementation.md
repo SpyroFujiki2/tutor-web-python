@@ -55,9 +55,14 @@ mã user. Khôi phục mật khẩu qua email cần dịch vụ email và thiế
 - Người mua còn hạn truy cập bài kể cả khi khóa hidden. Lịch sử tiến độ vẫn
   được xem sau khi quyền hết hạn/hủy.
 - Điểm danh trực tiếp chỉ do quản trị ghi nhận, kiểm tra bài và quyền cùng khóa.
-- Tiến độ/kết quả do server tính: các bài có trọng số ngang nhau, điểm tổng kết
-  là trung bình ba điểm giữa kỳ/cuối kỳ/thực hành, làm tròn half-up. Xuất sắc
-  từ 85, đạt từ 50, dưới 50 không đạt. Cần đủ bài và đủ điểm mới đạt 100%.
+- Tiến độ do server tính: các bài có trọng số ngang nhau. Bài VOD không có
+  bài tập tính theo thời lượng đã xem/tổng thời lượng; chưa biết thời lượng
+  thì chờ metadata. Bài có bài tập chỉ hoàn thành khi quản trị xác nhận,
+  còn lớp trực tiếp không có bài tập dùng điểm danh. Tiến độ 100% ghi nhận
+  hoàn thành học tập, không yêu cầu có điểm đánh giá.
+- Điểm tổng kết là trung bình ba điểm giữa kỳ/cuối kỳ/thực hành, làm tròn
+  half-up. Xuất sắc từ 85, đạt từ 50, dưới 50 không đạt. Chỉ ghi kết quả khi
+  hoàn thành toàn bộ bài học và có đủ ba điểm do quản trị nhập.
 - Tín hiệu xem VOD tự khai không được dùng làm điểm thi tin cậy. Phần nhà cung
   cấp video, seed Drive và cơ chế phát video được thực hiện sau nhóm code này.
 

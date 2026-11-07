@@ -95,7 +95,11 @@ export function createApiClient(baseUrl, {
       })
       if (response.status === 204) return null
       if (response.ok && responseType === 'blob') return await response.blob()
-      const payload = await response.json().catch(() => null)
+      let payload = null
+      try { payload = await response.json() }
+      catch (error) {
+        if (signal?.aborted || timeout.aborted || !(error instanceof SyntaxError)) throw error
+      }
       if (!response.ok) {
         const detail = payload?.detail
         const message = typeof detail === 'string' ? detail : Array.isArray(detail)

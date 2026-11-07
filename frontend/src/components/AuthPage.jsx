@@ -19,7 +19,7 @@ export default function AuthPage({ mode, expired, next, onAuthenticate }) {
     }
     lock.current = true
     setBusy(true); setError('')
-    try { await onAuthenticate({ email: values.get('email').trim(), password: values.get('password') }, register) }
+    try { await onAuthenticate({ email: values.get('email').trim(), password: values.get('password'), ...(register ? { full_name: values.get('full_name').trim() } : {}) }, register) }
     catch (error) { setError(error.message) }
     finally { lock.current = false; setBusy(false) }
   }
@@ -28,6 +28,7 @@ export default function AuthPage({ mode, expired, next, onAuthenticate }) {
     <div className="auth-form-panel"><SiteLink href="/" className="back-link"><Icon name="back" size={17} />Về trang chủ</SiteLink><div className="auth-form-content"><div className="auth-form-icon"><Icon name={register ? 'cap' : 'book'} size={27} /></div><p className="eyebrow">KHÔNG GIAN HỌC TẬP CỦA BẠN</p><h1>{register ? 'Bắt đầu hành trình.' : 'Chào mừng trở lại.'}</h1><p className="auth-description">{register ? 'Tạo tài khoản để khám phá và lưu giữ từng bước tiến.' : 'Đăng nhập để tiếp tục những điều bạn đang khám phá.'}</p>
       {expired && !register && <p className="notice error" role="alert"><Icon name="alert" size={18} />Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.</p>}
       <form className="form auth-form" onSubmit={submit}><fieldset disabled={busy}>
+        {register && <label htmlFor="auth-full-name">Họ và tên<div className="input-with-icon"><Icon name="users" size={18} /><input id="auth-full-name" name="full_name" autoComplete="name" placeholder="Nhập họ và tên của bạn" required maxLength={200} pattern=".*\S.*" /></div></label>}
         <label htmlFor="auth-email">Địa chỉ email<div className="input-with-icon"><Icon name="mail" size={18} /><input id="auth-email" name="email" type="email" autoComplete="email" placeholder="ban@example.com" required maxLength={320} /></div></label>
         <label htmlFor="auth-password">Mật khẩu<div className="input-with-icon"><Icon name="lock" size={18} /><input id="auth-password" name="password" type={visible ? 'text' : 'password'} autoComplete={register ? 'new-password' : 'current-password'} placeholder={register ? 'Ít nhất 8 ký tự' : 'Nhập mật khẩu của bạn'} required minLength={register ? 8 : 1} maxLength={1024} /><button type="button" className="password-toggle icon-button" aria-label={visible ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'} aria-pressed={visible} onClick={() => setVisible(!visible)}><Icon name={visible ? 'eyeOff' : 'eye'} size={18} /></button></div></label>
         {register && <label htmlFor="auth-confirm-password">Xác nhận mật khẩu<div className="input-with-icon"><Icon name="lock" size={18} /><input id="auth-confirm-password" name="confirm_password" type={visible ? 'text' : 'password'} autoComplete="new-password" placeholder="Nhập lại mật khẩu" required minLength={8} maxLength={1024} /></div></label>}

@@ -116,6 +116,127 @@ class DomainApiFixture(unittest.TestCase):
             return session.scalar(select(Wallet.available_balance).where(Wallet.user_id == self.ids[name], Wallet.type == kind))
 
 class DomainApiTests(DomainApiFixture):
+    def test_rest_audit_filters_and_authorized_details_distinguish_create_update_and_legacy(self):
+        course, _ = self.create_course()
+        target = f"/admin/action-logs?target_id={course['id']}"
+        created = self.request('GET', target + '&operation=POST', who='head')
+        self.assertEqual(len(created), 1)
+        self.assertEqual(created[0]['operation'], 'POST')
+        self.request('PUT', f"/admin/courses/{course['id']}", {
+            'title': 'Updated course', 'description': 'Updated description',
+            'price': 0, 'is_live': False, 'status': 'visible',
+        }, who='admin')
+        updated = self.request('GET', target + '&operation=PUT', who='head')
+        self.assertEqual(len(updated), 1)
+        detail = self.request('GET', f"/admin/action-logs/{updated[0]['id']}", who='head')
+        self.assertEqual(detail, updated[0])
+        self.assertEqual(detail['new_value']['title'], 'Updated course')
+        self.assertEqual(detail['old_value']['title'], course['title'])
+        self.request('GET', f"/admin/action-logs/{updated[0]['id']}", expected=403)
+        self.request('GET', f'/admin/action-logs/{uuid4()}', who='head', expected=404)
+        self.request('GET', target + '&operation=INVALID', who='head', expected=422)
+        legacy_id = uuid4()
+        with self.factory.begin() as session:
+            session.add(ActionLog(id=legacy_id, admin_id=self.ids['admin'], target_type='courses',
+                                  target_id=UUID(course['id']), action_code='course.save', created_at=now()))
+        legacy = self.request('GET', target + '&operation=OTHER', who='head')
+        self.assertEqual([row['id'] for row in legacy], [str(legacy_id)])
+        self.assertEqual(legacy[0]['operation_label'], 'Khác')
+        self.assertEqual(self.request('GET', target + '&operation=DELETE', who='head'), [])
+        self.assertEqual(self.request('GET', target + '&operation=PUT', who='head'), updated)
+        self.assertEqual(self.request('GET', target + '&operation=PATCH', who='head'), [])
+        self.assertEqual(self.request('GET', target + '&operation=UPDATE', who='head'), updated)
+        filters = self.request('GET', '/admin/action-log-filters', who='head')
+        self.assertEqual(set(filters['operations']), {'GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OTHER'})
+        self.assertEqual(filters['operations']['OTHER'], 'Khác')
+        self.assertEqual(filters['entities']['users'], 'Người dùng')
+        self.assertEqual(filters['entities']['courses'], 'Khóa học')
+
+    def test_historical_values_use_the_same_rest_category_in_display_and_filters(self):
+        cases = [('course.save', 'POST', 'POST'), ('course.save', 'UPDATE', 'PUT'),
+                 ('course.save', 'PATCH', 'PATCH'), ('cash.view_bank_details', 'SELECT', 'GET'),
+                 ('course.refund', 'UPDATE', 'PATCH'), ('future.action', None, 'OTHER'),
+                 ('course.save', 'INSERT', 'POST')]
+        identities = [uuid4() for _ in cases]
+        target = uuid4()
+        with self.factory.begin() as session:
+            for identity, (action, stored, _expected) in zip(identities, cases):
+                session.add(ActionLog(id=identity, admin_id=self.ids['head'], target_type='courses',
+                                      target_id=target, action_code=action, operation=stored, created_at=now()))
+        rows = self.request('GET', f'/admin/action-logs?target_id={target}', who='head')
+        expected = {str(identity): category for identity, (_, _, category) in zip(identities, cases)}
+        self.assertEqual({row['id']: row['operation'] for row in rows}, expected)
+        for category in ('POST', 'GET', 'PUT', 'PATCH', 'DELETE', 'OTHER'):
+            filtered = self.request('GET', f'/admin/action-logs?target_id={target}&operation={category}', who='head')
+            self.assertEqual({row['id'] for row in filtered}, {identity for identity, value in expected.items() if value == category})
+        searched = self.request('GET', f'/admin/action-logs?target_id={target}&q=sua du lieu', who='head')
+        self.assertEqual({row['id'] for row in searched}, {identity for identity, value in expected.items() if value in ('PUT', 'PATCH')})
+
+    def test_profile_names_and_full_audit_information_remain_authorized(self):
+        name = 'Nguyễn Minh An'
+        profile = self.request('PATCH', '/auth/profile', {'full_name': f'  {name}  '})
+        self.assertEqual(profile['full_name'], name)
+        self.assertEqual(self.request('GET', '/auth/me')['full_name'], name)
+        self.request('PATCH', '/auth/profile', {'full_name': '   '}, expected=422)
+        self.request('PATCH', '/auth/profile', {'full_name': name, 'role': 'head_admin'}, expected=422)
+        self.request('PATCH', '/auth/profile', {'full_name': name}, who=None, expected=401)
+        self.request('PATCH', '/auth/profile', {'full_name': 'Trần Quang Huy'}, who='head')
+        self.request('POST', f"/admin/users/{self.ids['customer']}/status",
+                     {'status': 'suspended', 'reason': 'Kiểm tra nhật ký đầy đủ'}, who='head')
+        log = self.request('GET', f"/admin/action-logs?target_id={self.ids['customer']}", who='head')[0]
+        self.assertEqual(log['admin']['full_name'], 'Trần Quang Huy')
+        self.assertEqual(log['target_user']['full_name'], name)
+        self.assertEqual(log['old_value']['status'], 'active')
+        self.assertEqual(log['new_value']['status'], 'suspended')
+        self.assertEqual(log['reason'], 'Kiểm tra nhật ký đầy đủ')
+        self.assertEqual(log['action_label'], 'Thay đổi trạng thái người dùng')
+        self.assertEqual(log['target_label'], 'Người dùng')
+        self.assertEqual(log['reason_label'], log['reason'])
+        localized = self.request('GET', '/admin/action-logs?q=thay doi trang thai nguoi dung', who='head')
+        self.assertIn(log['id'], [row['id'] for row in localized])
+        options = self.request('GET', '/admin/action-log-filters', who='head')
+        self.assertEqual(options['action_labels']['user.status'], 'Thay đổi trạng thái người dùng')
+        self.assertNotIn('password_hash', str(log))
+        self.assertNotIn(self.password, str(log))
+
+    def test_registration_accepts_full_name_without_changing_login_contract(self):
+        profile = self.request('POST', '/auth/register', {
+            'email': 'named@example.com', 'password': self.password, 'full_name': '  Nguyễn Minh An  ',
+        }, who=None, expected=201)
+        self.assertEqual(profile['full_name'], 'Nguyễn Minh An')
+
+    def test_audit_filters_apply_before_pagination_and_handle_literal_search(self):
+        identities = [uuid4() for _ in range(26)]
+        with self.factory.begin() as session:
+            session.get(User, self.ids['head']).full_name = 'Trần Quang Huy'
+            session.get(User, self.ids['customer']).full_name = 'Nguyễn Minh An'
+            for index, identity in enumerate(identities):
+                session.add(ActionLog(
+                    id=identity, admin_id=self.ids['head'] if index < 25 else None,
+                    target_user_id=self.ids['customer'], target_type='test_events', target_id=self.ids['customer'],
+                    action_code='test.filter', reason='Literal 100%_value' if index == 0 else 'Ordinary change',
+                    created_at=datetime(2026, 11, 1) + timedelta(minutes=index) if index < 25 else datetime(2026, 11, 2),
+                ))
+        base = '/admin/action-logs?action_code=test.filter&target_type=test_events'
+        first = self.request('GET', base + '&limit=20&actor=Trần Quang Huy&actor_kind=user', who='head')
+        second = self.request('GET', base + '&limit=20&offset=20&actor=Trần Quang Huy', who='head')
+        self.assertEqual(len(first), 20)
+        self.assertEqual(len(second), 5)
+        self.assertEqual(len(self.request('GET', base + f"&actor={self.ids['head']}&limit=100", who='head')), 25)
+        self.assertTrue({row['id'] for row in first}.isdisjoint({row['id'] for row in second}))
+        self.assertEqual(len(self.request('GET', base + '&q=Nguyễn Minh An', who='head')), 20)
+        self.assertEqual(len(self.request('GET', base + '&q=%25', who='head')), 1)
+        self.assertEqual(self.request('GET', base + f'&q={identities[0]}', who='head')[0]['id'], str(identities[0]))
+        self.assertEqual(len(self.request('GET', base + '&actor_kind=system', who='head')), 1)
+        self.assertEqual(len(self.request('GET', base + '&created_from=2026-11-02T00:00:00Z&created_to=2026-11-03T00:00:00Z', who='head')), 1)
+        self.request('GET', base + '&created_from=2026-11-03T00:00:00Z&created_to=2026-11-01T00:00:00Z', who='head', expected=400)
+        self.request('GET', base + '&actor_kind=invalid', who='head', expected=422)
+        self.request('GET', base, expected=403)
+        options = self.request('GET', '/admin/action-log-filters', who='head')
+        self.assertIn('test.filter', options['actions'])
+        self.assertIn('test_events', options['target_types'])
+        self.request('GET', '/admin/action-log-filters', expected=403)
+
     def test_register_creates_safe_role_and_wallet_and_rejects_mass_assignment(self):
         payload = {'email': 'NEW@EXAMPLE.COM', 'password': 'new-password-123'}
         self.request('POST', '/auth/register', {**payload, 'role': 'head_admin'}, who=None, expected=422)
@@ -175,8 +296,10 @@ class DomainApiTests(DomainApiFixture):
         path = f"/subscriptions/{sub['id']}/lessons/{lesson['id']}/watch"
         self.request('POST', path, {'duration_watched': 600, 'final_score': 100}, expected=422)
         progress = self.request('POST', path, {'duration_watched': 600})
-        self.assertEqual(progress['progress_percent'], '99.99')
+        self.assertEqual(progress['progress_percent'], '100.00')
         self.assertIsNone(progress['result'])
+        self.assertIsNone(progress['final_score'])
+        self.assertIsNotNone(progress['completed_at'])
         self.request('POST', f"/admin/subscriptions/{sub['id']}/grade", {'midterm_score': 90, 'endterm_score': 90, 'practice_score': 90}, expected=403)
         progress = self.request('POST', f"/admin/subscriptions/{sub['id']}/grade", {'midterm_score': 90, 'endterm_score': 90, 'practice_score': 90}, who='admin')
         self.assertEqual(progress['progress_percent'], '100.00')
@@ -189,7 +312,8 @@ class DomainApiTests(DomainApiFixture):
         course, lesson = self.create_course()
         sub = self.purchase(course)
         path = f"/subscriptions/{sub['id']}/lessons/{lesson['id']}/watch"
-        self.request('POST', path, {'duration_watched': 30, 'duration_seconds': 125, 'completed': True})
+        progress = self.request('POST', path, {'duration_watched': 30, 'duration_seconds': 125, 'completed': True})
+        self.assertEqual(progress['progress_percent'], '24.00')
         rows = self.request('GET', f"/subscriptions/{sub['id']}/lessons")
         self.assertEqual(rows[0]['duration_seconds'], 125)
         attendance = self.request('GET', f"/subscriptions/{sub['id']}/attendance")[0]
@@ -201,6 +325,86 @@ class DomainApiTests(DomainApiFixture):
         self.request('POST', path, {'duration_watched': 125})
         self.assertFalse(self.request('GET', f"/subscriptions/{sub['id']}/attendance")[0]['is_absent'])
         self.request('POST', path, {'duration_watched': 125}, who='other', expected=404)
+
+    def test_partial_video_progress_survives_reopen_and_stale_watch_updates(self):
+        course, lesson = self.create_course()
+        sub = self.purchase(course)
+        path = f"/subscriptions/{sub['id']}/lessons/{lesson['id']}/watch"
+        progress = self.request('POST', path, {'duration_watched': 300})
+        self.assertEqual(progress['progress_percent'], '50.00')
+        self.assertEqual(progress['lesson_progress'][0]['progress_percent'], '50.00')
+        self.assertFalse(progress['lesson_progress'][0]['is_completed'])
+        self.assertIsNone(progress['completed_at'])
+        self.request('POST', path, {'duration_watched': 20, 'completed': True})
+        # Refresh also repairs previously stored all-or-nothing percentages.
+        with self.factory.begin() as session:
+            session.get(CourseProgress, UUID(sub['id'])).progress_percent = 0
+        reopened = self.request('GET', f"/subscriptions/{sub['id']}/progress")
+        self.assertEqual(reopened['progress_percent'], '50.00')
+        self.assertEqual(reopened['lesson_progress'][0]['duration_watched'], 300)
+        self.request('GET', f"/subscriptions/{sub['id']}/progress", who='other', expected=404)
+        self.request('GET', f"/admin/subscriptions/{sub['id']}/progress", expected=403)
+        self.assertEqual(self.request('GET', f"/admin/subscriptions/{sub['id']}/progress", who='admin')['progress_percent'], '50.00')
+        self.assertEqual(self.request('POST', path, {'duration_watched': 601})['progress_percent'], '100.00')
+
+    def test_assignment_lessons_require_confirmation_and_ignore_video_completion(self):
+        course, video = self.create_course()
+        assignment = self.request('POST', f"/admin/courses/{course['id']}/lessons", {
+            'order_idx': 2, 'duration_minutes': 5, 'assignment_url': 'https://example.com/exercise',
+        }, who='admin', expected=201)
+        sub = self.purchase(course)
+        watch = f"/subscriptions/{sub['id']}/lessons"
+        self.assertEqual(self.request('POST', f"{watch}/{video['id']}/watch", {'duration_watched': 300})['progress_percent'], '25.00')
+        self.assertEqual(self.request('POST', f"{watch}/{video['id']}/watch", {'duration_watched': 600})['progress_percent'], '50.00')
+        self.request('POST', f"{watch}/{assignment['id']}/watch", {'duration_watched': 300, 'assignment_completed': True}, expected=422)
+        watched = self.request('POST', f"{watch}/{assignment['id']}/watch", {'duration_watched': 300, 'completed': True})
+        self.assertEqual(watched['progress_percent'], '50.00')
+        self.assertFalse(watched['lesson_progress'][1]['assignment_completed'])
+        graded = self.request('POST', f"/admin/subscriptions/{sub['id']}/grade", {
+            'midterm_score': 90, 'endterm_score': 90, 'practice_score': 90,
+        }, who='admin')
+        self.assertEqual(graded['progress_percent'], '50.00')
+        self.assertIsNone(graded['result'])
+        path = f"/admin/subscriptions/{sub['id']}/lessons/{assignment['id']}/assignment"
+        body = {'completed': True, 'reason': 'Reviewed submitted work'}
+        self.request('POST', path, body, expected=403)
+        self.request('POST', f"/admin/subscriptions/{sub['id']}/lessons/{video['id']}/assignment", body, who='admin', expected=400)
+        _, foreign_lesson = self.create_course()
+        self.request('POST', f"/admin/subscriptions/{sub['id']}/lessons/{foreign_lesson['id']}/assignment", body, who='admin', expected=404)
+        completed = self.request('POST', path, body, who='admin')
+        self.assertEqual(completed['progress_percent'], '100.00')
+        self.assertTrue(completed['lesson_progress'][1]['assignment_completed'])
+        self.assertEqual(completed['result'], 'excellent')
+        revoked = self.request('POST', path, {'completed': False, 'reason': 'Needs revision'}, who='admin')
+        self.assertEqual(revoked['progress_percent'], '50.00')
+        self.assertIsNone(revoked['completed_at'])
+        self.assertIsNone(revoked['result'])
+        with self.factory.begin() as session:
+            session.get(UserSubscription, UUID(sub['id'])).expired_at = now() - timedelta(seconds=1)
+        self.request('POST', path, body, who='admin', expected=400)
+
+    def test_live_attendance_does_not_complete_an_assignment(self):
+        course = self.request('POST', '/admin/courses', {'title': 'Live work', 'price': 0, 'is_live': True}, who='admin', expected=201)
+        lesson = self.request('POST', f"/admin/courses/{course['id']}/lessons", {
+            'order_idx': 1, 'assignment_url': 'https://example.com/exercise',
+        }, who='admin', expected=201)
+        sub = self.purchase(course)
+        path = f"/admin/subscriptions/{sub['id']}/lessons/{lesson['id']}"
+        present = self.request('POST', f'{path}/attendance', {'is_absent': False}, who='admin')
+        self.assertEqual(present['progress_percent'], '0.00')
+        confirmed = self.request('POST', f'{path}/assignment', {'completed': True, 'reason': 'Work checked'}, who='admin')
+        self.assertEqual(confirmed['progress_percent'], '100.00')
+        self.assertIsNone(confirmed['final_score'])
+
+    def test_almost_finished_video_does_not_round_to_complete(self):
+        course, lesson = self.create_course()
+        sub = self.purchase(course)
+        progress = self.request('POST', f"/subscriptions/{sub['id']}/lessons/{lesson['id']}/watch", {
+            'duration_seconds': 600000, 'duration_watched': 599999,
+        })
+        self.assertEqual(progress['progress_percent'], '99.99')
+        self.assertFalse(progress['lesson_progress'][0]['is_completed'])
+        self.assertIsNone(progress['completed_at'])
 
     def test_live_attendance_requires_admin_and_matching_course(self):
         course, lesson = self.create_course(live=True)
@@ -314,28 +518,31 @@ class DomainApiTests(DomainApiFixture):
         self.request('POST', path, {'success': False, 'reason': 'No'}, who='head', expected=400)
 
     def test_pending_withdrawal_reserves_funds_and_bank_details_are_masked(self):
-        bank = self.request('POST', '/me/payment-methods', {'bank_name': 'Example Bank', 'account_number': '123456789', 'account_holder_name': 'Customer'}, expected=201)
+        self.request('POST', '/me/transfers', {'request_id': str(uuid4()), 'source_type': 'normal', 'destination_type': 'commercial', 'amount': 1000}, who='tutor')
+        bank = self.request('POST', '/me/payment-methods', {'bank_name': 'Example Bank', 'account_number': '123456789', 'account_holder_name': 'Tutor'}, who='tutor', expected=201)
         self.assertNotIn('account_number', bank)
         self.assertEqual(bank['account_number_masked'], '****6789')
-        order = self.request('POST', '/me/withdrawals', {'request_id': str(uuid4()), 'payment_method_id': bank['id'], 'amount': 950}, expected=201)
+        order = self.request('POST', '/me/withdrawals', {'request_id': str(uuid4()), 'payment_method_id': bank['id'], 'amount': 950}, who='tutor', expected=201)
         self.assertNotIn('bank_info', order)
-        self.request('DELETE', f"/me/payment-methods/{bank['id']}", expected=400)
+        self.request('DELETE', f"/me/payment-methods/{bank['id']}", who='tutor', expected=400)
         course, _ = self.create_course()
-        self.purchase(course, expected=400)
+        self.request('POST', '/me/transfers', {'request_id': str(uuid4()), 'source_type': 'commercial', 'destination_type': 'normal', 'amount': 100}, who='tutor', expected=400)
         self.request('POST', f"/admin/cash-orders/{order['id']}/decision", {'success': False, 'reason': 'Cancelled transfer'}, who='head')
-        self.purchase(course)
-        self.assertEqual(self.balance(), 900)
+        self.request('POST', '/me/transfers', {'request_id': str(uuid4()), 'source_type': 'commercial', 'destination_type': 'normal', 'amount': 100}, who='tutor')
+        self.purchase(course, who='tutor')
+        self.assertEqual(self.balance('tutor', WalletType.COMMERCIAL), 900)
 
     def test_successful_withdrawal_debits_once_and_does_not_leak_bank_details(self):
-        bank = self.request('POST', '/me/payment-methods', {'bank_name': 'Example Bank', 'account_number': '123456789', 'account_holder_name': 'Customer'}, expected=201)
-        order = self.request('POST', '/me/withdrawals', {'request_id': str(uuid4()), 'payment_method_id': bank['id'], 'amount': 300}, expected=201)
+        self.request('POST', '/me/transfers', {'request_id': str(uuid4()), 'source_type': 'normal', 'destination_type': 'commercial', 'amount': 1000}, who='tutor')
+        bank = self.request('POST', '/me/payment-methods', {'bank_name': 'Example Bank', 'account_number': '123456789', 'account_holder_name': 'Tutor'}, who='tutor', expected=201)
+        order = self.request('POST', '/me/withdrawals', {'request_id': str(uuid4()), 'payment_method_id': bank['id'], 'amount': 300}, who='tutor', expected=201)
         path = f"/admin/cash-orders/{order['id']}/bank-details"
         self.request('GET', path, who='admin', expected=403)
         self.assertEqual(self.request('GET', path, who='head')['account_number'], '123456789')
         for _ in range(2):
             self.request('POST', f"/admin/cash-orders/{order['id']}/decision", {'success': True, 'reason': 'Bank transfer 1'}, who='head')
-        self.assertEqual(self.balance(), 700)
-        history = self.request('GET', '/me/wallets/normal/external-history')
+        self.assertEqual(self.balance('tutor', WalletType.COMMERCIAL), 700)
+        history = self.request('GET', '/me/wallets/commercial/external-history', who='tutor')
         self.assertEqual(history[0]['balance_after'], 700)
         self.assertNotIn('source_wallet_id', history[0])
 

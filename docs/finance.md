@@ -46,7 +46,12 @@ Response ví tách `available_balance`, `reserved_withdrawals` và
 không được chi. Với ví nền tảng, còn trừ thu nhập đang held cho gia sư.
 
 Tạo đơn nạp lấy giá/số credit từ gói active. Tạo đơn rút khóa user/ví, kiểm tra
-ngân hàng đúng chủ và snapshot thông tin nhận tiền. Request UUID được dùng làm
+ngân hàng đúng chủ và snapshot thông tin nhận tiền. **Chỉ ví commercial được rút**;
+ví normal không được tạo yêu cầu rút, kể cả tài khoản quản trị. API mặc định
+`wallet_type=commercial`, từ chối `normal`; service và bước duyệt/ghi ledger
+cũng kiểm tra độc lập. Đơn normal cũ còn pending không thể được duyệt chi;
+chủ đơn vẫn được hủy hoặc quản trị từ chối để giải tỏa số tiền giữ.
+Request UUID được dùng làm
 PK của đơn; retry cùng yêu cầu trả lại đơn cũ, không giữ tiền thêm.
 
 Head admin chỉ xác nhận sau khi đối soát tiền ngoài hệ thống và ghi lý do/tham
@@ -64,6 +69,10 @@ Head admin xem snapshot nhận tiền qua endpoint riêng, có audit.
 
 Ví khóa vẫn cho chủ tài khoản active xem lịch sử. Hoàn quyền dịch vụ có thể
 cộng credit vào ví khóa, nhưng không tự mở khóa hoặc cho rút/chi trở lại.
+Đơn nạp đã tạo trước khi khóa ví vẫn được ghi nhận khi có IPN/QueryDR hợp lệ
+hoặc head admin xác nhận tiền thực nhận. Ví giữ trạng thái khóa và số có thể
+chi bằng 0; xác nhận lặp không cộng thêm credit. Không tạo đơn nạp mới hoặc
+duyệt chi đơn rút khi ví đang khóa.
 
 ## Chuyển credit và bút toán bù
 

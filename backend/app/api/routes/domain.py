@@ -1,6 +1,7 @@
 """Application API. Authorization lives in services, writes commit exactly once."""
 
-from typing import Annotated
+from datetime import datetime
+from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request, Response
@@ -11,7 +12,7 @@ from sqlalchemy.orm import Session
 from app.api.dependencies.auth import get_current_user
 from app.api.dependencies.database import get_session
 from app.models import (
-    Attendance, Booking, BookingSession, BookingSettlement, CashOrder, Comment,
+    ActionLog, Attendance, Booking, BookingSession, BookingSettlement, CashOrder, Comment,
     CommentReport, Course, CourseProgress, CreditPackage, Dispute, ExternalTransaction,
     Lesson, Post, RoleRequest, TutoringPackage, User, UserSubscription, Wallet, WalletSnapshot,
 )
@@ -35,6 +36,7 @@ from app.modules.learning.lesson import list_my_course_lessons
 from app.modules.tutoring import tutoring_service as tutoring
 from app.modules.tutoring.tutoring_package import deactivate_tutoring_package, list_active_tutoring_packages, save_tutoring_package
 from app.modules.users import accounts
+from app.modules.users.audit_labels import action_label, target_label, reason_label, operation_for, OPERATION_LABELS, TARGET_LABELS
 from app.modules.users.action_log import list_admin_logs
 from app.modules.users.user_subscription import expire_subscriptions as expire_subscription_records
 from app.schemas import domain as inputs
@@ -127,7 +129,8 @@ def lessons(subscription_id: UUID, session: DB, user: Current):
 
 @router.get("/subscriptions/{subscription_id}/progress", response_model=out.ProgressResponse)
 def progress(subscription_id: UUID, session: DB, user: Current):
-    return get_my_course_progress(session, subscription_id, user.id)
+    get_my_course_progress(session, subscription_id, user.id)
+    return saved(session, learning.recalculate(session, get(session, CourseProgress, subscription_id, lock=True)), out.ProgressResponse)
 
 
 @router.get("/subscriptions/{subscription_id}/course", response_model=out.CourseResponse)
@@ -581,6 +584,17 @@ def grade(subscription_id: UUID, payload: inputs.GradeInput, session: DB, admin:
     return saved(session, learning.grade_course(session, admin.id, subscription_id, data(payload)), out.ProgressResponse)
 
 
+@router.get('/admin/subscriptions/{subscription_id}/progress', response_model=out.ProgressResponse)
+def admin_subscription_progress(subscription_id: UUID, session: DB, admin: Admin):
+    return saved(session, learning.recalculate(session, get(session, CourseProgress, subscription_id, lock=True)), out.ProgressResponse)
+
+
+@router.post('/admin/subscriptions/{subscription_id}/lessons/{lesson_id}/assignment', response_model=out.ProgressResponse)
+def complete_assignment(subscription_id: UUID, lesson_id: UUID, payload: inputs.AssignmentCompletionInput, session: DB, admin: Admin):
+    return saved(session, learning.confirm_assignment(session, admin.id, subscription_id, lesson_id,
+                 payload.completed, payload.reason), out.ProgressResponse)
+
+
 @router.post("/admin/subscriptions/{subscription_id}/refund", response_model=out.SubscriptionResponse)
 def refund_course(subscription_id: UUID, payload: inputs.ReasonInput, session: DB, admin: Admin):
     return saved(session, learning.refund_course(session, admin.id, subscription_id, payload.reason), out.SubscriptionResponse)
@@ -593,8 +607,49 @@ def record_live_attendance(subscription_id: UUID, lesson_id: UUID, payload: inpu
 
 @router.get("/admin/action-logs", response_model=list[out.LogResponse])
 def logs(session: DB, admin: Admin, limit: Limit = 20, offset: Offset = 0,
-         target_id: UUID | None = None, target_user_id: UUID | None = None):
-    return list_admin_logs(session, admin.id, limit=limit, offset=offset, target_id=target_id, target_user_id=target_user_id)
+         target_id: UUID | None = None, target_user_id: UUID | None = None,
+         q: str | None = Query(default=None, max_length=200),
+         action_code: str | None = Query(default=None, max_length=200),
+         target_type: str | None = Query(default=None, max_length=200),
+         actor: str | None = Query(default=None, max_length=200),
+         actor_kind: Literal['user', 'system'] | None = None,
+         operation: Literal['INSERT', 'SELECT', 'UPDATE', 'DELETE', 'OTHER', 'GET', 'POST', 'PUT', 'PATCH'] | None = None,
+         created_from: datetime | None = None, created_to: datetime | None = None):
+    rows = list_admin_logs(session, admin.id, limit=limit, offset=offset, target_id=target_id, target_user_id=target_user_id,
+                           q=q, action_code=action_code, target_type=target_type, actor=actor, actor_kind=actor_kind,
+                           created_from=created_from, created_to=created_to, operation=operation)
+    return serialize_logs(session, rows)
+
+
+def serialize_logs(session, rows):
+    identities = {identity for row in rows for identity in (row.admin_id, row.target_user_id) if identity}
+    users = {user.id: CurrentUserResponse.model_validate(user) for user in session.scalars(
+        select(User).where(User.id.in_(identities)))} if identities else {}
+    return [out.LogResponse.model_validate(row).model_copy(update={
+        "admin": users.get(row.admin_id), "target_user": users.get(row.target_user_id),
+        "action_label": action_label(row.action_code), "target_label": target_label(row.target_type),
+        "reason_label": reason_label(row.reason),
+        "operation": operation_for(row.action_code, row.operation),
+        "operation_label": OPERATION_LABELS[operation_for(row.action_code, row.operation)],
+    }) for row in rows]
+
+
+@router.get("/admin/action-log-filters", response_model=out.LogFilterOptions)
+def log_filter_options(session: DB, admin: Admin):
+    actions = list(session.scalars(select(ActionLog.action_code).where(ActionLog.action_code.is_not(None)).distinct().order_by(ActionLog.action_code)))
+    targets = list(session.scalars(select(ActionLog.target_type).where(ActionLog.target_type.is_not(None)).distinct().order_by(ActionLog.target_type)))
+    return {
+        'actions': actions, 'target_types': targets,
+        'action_labels': {code: action_label(code) for code in actions},
+        'target_labels': {code: target_label(code) for code in targets},
+        'operations': OPERATION_LABELS,
+        'entities': {**TARGET_LABELS, **{code: target_label(code) for code in targets}},
+    }
+
+
+@router.get('/admin/action-logs/{log_id}', response_model=out.LogResponse)
+def log_detail(log_id: UUID, session: DB, admin: Admin):
+    return serialize_logs(session, [get(session, ActionLog, log_id)])[0]
 
 
 @router.post("/admin/jobs/snapshots", response_model=list[out.SnapshotResponse])

@@ -19,6 +19,10 @@ from test_postgres_concurrency import PostgreSQLFixture
 
 
 class FinanceConcurrencyTests(PostgreSQLFixture):
+    def fund_commercial(self):
+        with self.factory.begin() as session:
+            move_own_credits(session, self.tutor, uuid4(), WalletType.NORMAL, WalletType.COMMERCIAL, 1000)
+
     def setUp(self):
         super().setUp()
         self.customer_bank, self.tutor_bank = uuid4(), uuid4()
@@ -42,36 +46,40 @@ class FinanceConcurrencyTests(PostgreSQLFixture):
             return booking_id, settlement.id
 
     def test_parallel_withdrawals_cannot_reserve_more_than_available(self):
+        self.fund_commercial()
         self.assertCountEqual(self.race(
-            lambda session: create_withdrawal(session, self.customer, uuid4(), WalletType.NORMAL, self.customer_bank, 600),
-            lambda session: create_withdrawal(session, self.customer, uuid4(), WalletType.NORMAL, self.customer_bank, 600),
+            lambda session: create_withdrawal(session, self.tutor, uuid4(), WalletType.COMMERCIAL, self.tutor_bank, 600),
+            lambda session: create_withdrawal(session, self.tutor, uuid4(), WalletType.COMMERCIAL, self.tutor_bank, 600),
         ), ['ok', 'rejected'])
         with self.factory() as session:
             self.assertEqual(session.scalar(select(func.sum(CashOrder.credit_amount))), 600)
         self.assertEqual(self.balance(), 1000)
 
     def test_transfer_racing_with_withdrawal_preserves_reservations(self):
+        self.fund_commercial()
         self.assertCountEqual(self.race(
-            lambda session: create_withdrawal(session, self.tutor, uuid4(), WalletType.NORMAL, self.tutor_bank, 600),
-            lambda session: move_own_credits(session, self.tutor, uuid4(), WalletType.NORMAL, WalletType.COMMERCIAL, 600),
+            lambda session: create_withdrawal(session, self.tutor, uuid4(), WalletType.COMMERCIAL, self.tutor_bank, 600),
+            lambda session: move_own_credits(session, self.tutor, uuid4(), WalletType.COMMERCIAL, WalletType.NORMAL, 600),
         ), ['ok', 'rejected'])
         with self.factory() as session:
-            available = session.scalar(select(Wallet.available_balance).where(Wallet.user_id == self.tutor, Wallet.type == WalletType.NORMAL))
+            available = session.scalar(select(Wallet.available_balance).where(Wallet.user_id == self.tutor, Wallet.type == WalletType.COMMERCIAL))
             pending = session.scalar(select(func.coalesce(func.sum(CashOrder.credit_amount), 0)))
             self.assertGreaterEqual(available, pending)
 
     def test_confirmation_racing_with_cancellation_never_debits_twice(self):
+        self.fund_commercial()
         with self.factory.begin() as session:
-            order = create_withdrawal(session, self.customer, uuid4(), WalletType.NORMAL, self.customer_bank, 300)
+            order = create_withdrawal(session, self.tutor, uuid4(), WalletType.COMMERCIAL, self.tutor_bank, 300)
         self.assertCountEqual(self.race(
             lambda session: decide_cash_order(session, self.admin, order.id, True, 'Bank transfer verified'),
-            lambda session: cancel_cash_order(session, self.customer, order.id),
+            lambda session: cancel_cash_order(session, self.tutor, order.id),
         ), ['ok', 'rejected'])
         with self.factory() as session:
             status = session.get(CashOrder, order.id).status
             count = session.scalar(select(func.count()).select_from(ExternalTransaction))
             self.assertEqual(count, 1 if status == CashOrderStatus.SUCCESS else 0)
-            self.assertEqual(self.balance(), 700 if status == CashOrderStatus.SUCCESS else 1000)
+            available = session.scalar(select(Wallet.available_balance).where(Wallet.user_id == self.tutor, Wallet.type == WalletType.COMMERCIAL))
+            self.assertEqual(available, 700 if status == CashOrderStatus.SUCCESS else 1000)
 
     def test_concurrent_external_corrections_append_one_compensation(self):
         with self.factory.begin() as session:

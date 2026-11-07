@@ -74,11 +74,12 @@ export function Form({ fields, onSubmit, submit = 'Lưu', initial = {}, reset = 
 }
 
 export function Badge({ value }) { return <span className={`badge badge-${value}`}>{labels[value] ?? value}</span> }
-export function Pager({ offset, setOffset, length, size = 20, hasNext = length >= size }) {
-  return <nav className="pager" aria-label="Phân trang"><button disabled={!offset} onClick={() => setOffset(Math.max(0, offset - size))}><Icon name="back" size={14} />Trước</button><span>Trang {Math.floor(offset / size) + 1}</span><button disabled={!hasNext} onClick={() => setOffset(offset + size)}>Tiếp<Icon name="arrow" size={14} /></button></nav>
+export function Pager({ offset, setOffset, length, size = 20, hasNext = length >= size, disabled = false }) {
+  return <nav className="pager" aria-label="Phân trang"><button disabled={disabled || !offset} onClick={() => setOffset(Math.max(0, offset - size))}><Icon name="back" size={14} />Trước</button><span>Trang {Math.floor(offset / size) + 1}</span><button disabled={disabled || !hasNext} onClick={() => setOffset(offset + size)}>Tiếp<Icon name="arrow" size={14} /></button></nav>
 }
 
 const fieldLabels = {
+  full_name: 'Họ và tên',
   price: 'Giá niêm yết', credits: 'Số credit', is_active: 'Đang mở bán', is_live: 'Học trực tiếp',
   id: 'Mã', subscription_id: 'Mã đăng ký', customer_id: 'Khách hàng', tutor_id: 'Gia sư',
   user_id: 'Người dùng', booking_id: 'Mã đơn học', course_id: 'Mã khóa học', admin_id: 'Người xử lý',

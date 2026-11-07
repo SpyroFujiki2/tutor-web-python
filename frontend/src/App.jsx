@@ -82,7 +82,7 @@ function App() {
   }
   async function authenticate(values, register) {
     if (register) await api.request('/auth/register', { method: 'POST', body: values })
-    const tokens = await api.request('/auth/login', { method: 'POST', body: values })
+    const tokens = await api.request('/auth/login', { method: 'POST', body: { email: values.email, password: values.password } })
     api.setTokens(tokens)
     try {
       const current = await api.request('/auth/me')
@@ -97,9 +97,9 @@ function App() {
   const onLogin = (next = '/courses') => navigate(loginDestination(next))
   const onPurchased = () => navigate('/learning')
 
-  return <div className="app-shell"><a className="skip-link" href="#main-content">Đến nội dung chính</a>
+  return <div className={`app-shell ${user && !payment ? 'workspace-shell' : ''}`}><a className="skip-link" href="#main-content">Đến nội dung chính</a>
     <Header key={location} user={user} pathname={pathname} theme={theme} onThemeChange={() => setTheme(theme === 'light' ? 'dark' : 'light')} onLogout={async () => { try { await api.request('/auth/logout', { method: 'POST' }) } finally { clearSession() } }} />
-    <div className={user && !payment ? 'workspace-layout container' : 'page-layout'}>
+    <div className={user && !payment ? 'workspace-layout' : 'page-layout'}>
     {user && !payment && <WorkspaceNav user={user} pathname={pathname} adminSection={resolveAdminSection(location).id} />}
     <main id="main-content" tabIndex={-1} className={`container main-content ${route.auth ? 'auth-main' : ''} ${route.page === 'home' ? 'home-main' : ''}`} key={user?.id ?? 'public'}>
       {sessionStatus === 'loading' ? <div className="session-screen" role="status"><span className="session-emblem"><Icon name="cap" size={32} /></span><span className="spinner" /><h1>Đang mở không gian của bạn</h1><p>Khôi phục phiên đăng nhập…</p></div> : sessionStatus === 'error' ? <div className="session-screen"><span className="session-emblem"><Icon name="alert" size={30} /></span><h1>Chưa kết nối được tài khoản</h1><p role="alert">{sessionError}</p><p>Phiên của bạn vẫn được lưu. Hãy thử lại khi kết nối ổn định.</p><div className="actions"><button className="primary" onClick={() => { setSessionStatus('loading'); setSessionRevision((value) => value + 1) }}>Kết nối lại</button><button onClick={clearSession}>Đăng nhập lại</button></div></div> : payment ? <PaymentReturn api={api} user={user} /> : needsLogin ? <div className="route-loading" role="status"><span className="spinner" />Đang mở trang đăng nhập…</div> : <>
@@ -112,7 +112,7 @@ function App() {
           {route.page === 'community' && <Community api={api} user={user} />}
           {route.page === 'wallet' && <Wallet api={api} user={user} />}
           {route.page === 'disputes' && <Disputes api={api} user={user} />}
-          {route.page === 'account' && <Account api={api} user={user} onLogout={clearSession} />}
+          {route.page === 'account' && <Account api={api} user={user} onLogout={clearSession} onProfileChange={setUser} />}
           {route.page === 'admin' && (isAdmin(user) ? <Admin api={api} user={user} /> : <div className="empty-page"><Icon name="shield" size={42} /><h1>Bạn chưa có quyền truy cập</h1><p>Khu vực này dành cho quản trị viên.</p><SiteLink className="button primary" href="/learning">Về việc học của tôi</SiteLink></div>)}
         </>}
         {route.page === 'not-found' && <div className="empty-page"><span className="error-code">404</span><h1>Trang này chưa có trong hành trình.</h1><p>Hãy quay về trang chủ để tiếp tục khám phá.</p><SiteLink href="/" className="button primary">Về trang chủ<Icon name="arrow" size={18} /></SiteLink></div>}

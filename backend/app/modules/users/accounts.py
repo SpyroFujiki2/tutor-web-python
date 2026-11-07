@@ -15,11 +15,12 @@ __all__ = ['register_user', 'create_wallet', 'revoke_all', 'change_email', 'list
            'change_password', 'change_status', 'save_payment_method', 'remove_payment_method']
 
 
-def register_user(session, email, password):
+def register_user(session, email, password, full_name=None):
     email = str(email).strip().lower()
     require(not session.scalar(select(User.id).where(User.email == email)), "Email đã được đăng ký")
     require(8 <= len(password) <= 1024, "Mật khẩu cần từ 8 đến 1024 ký tự")
     user = add(session, User, email=email, password_hash=hash_password(password),
+               full_name=full_name.strip() if full_name else None,
                role=UserRole.MEMBER, status=UserStatus.ACTIVE, created_at=now())
     create_wallet(session, user.id, WalletType.NORMAL)
     return user

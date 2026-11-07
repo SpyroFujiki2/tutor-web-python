@@ -133,7 +133,7 @@ class DepositInput(Purchase):
 
 
 class WithdrawalInput(Purchase):
-    wallet_type: WalletType = WalletType.NORMAL
+    wallet_type: Literal[WalletType.COMMERCIAL] = WalletType.COMMERCIAL
     payment_method_id: UUID
     amount: PositiveMoney
 
@@ -166,6 +166,11 @@ class GradeInput(Input):
 
 class LiveAttendanceInput(Input):
     is_absent: bool
+
+
+class AssignmentCompletionInput(Input):
+    completed: bool
+    reason: ShortText
 
 
 class HiddenInput(Input):

@@ -70,7 +70,7 @@ class AuthApiTests(unittest.TestCase):
         me = self.client.get("/api/auth/me", headers=self.authorization(tokens))
         self.assertEqual(me.status_code, 200)
         self.assertEqual(me.json(), {
-            "id": str(self.user_id), "email": "member@example.com", "role": "member", "status": "active",
+            "id": str(self.user_id), "email": "member@example.com", "full_name": None, "role": "member", "status": "active",
         })
 
     def test_invalid_credentials_and_inactive_users_have_the_same_error_and_no_session(self):

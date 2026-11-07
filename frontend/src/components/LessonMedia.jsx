@@ -1,8 +1,14 @@
 import { useEffect, useEffectEvent, useRef, useState } from 'react'
-import { driveVideo, externalMediaUrl } from '../services/media.js'
+import { driveVideo, externalMediaUrl, youtubeVideo } from '../services/media.js'
+import YouTubeLessonMedia from './YouTubeLessonMedia.jsx'
 import { formatDuration, playbackDelta } from '../services/watch-time.js'
 
-export default function LessonMedia({ url, title, api, subscriptionId, lessonId, initialWatched = 0, track = false, onSaved, onWatch }) {
+export default function LessonMedia(props) {
+  const youtube = youtubeVideo(props.url)
+  return youtube ? <YouTubeLessonMedia {...props} video={youtube} /> : <NativeLessonMedia {...props} />
+}
+
+function NativeLessonMedia({ url, title, api, subscriptionId, lessonId, initialWatched = 0, track = false, onSaved, onWatch }) {
   const videoRef = useRef(null)
   const cacheKey = `lesson-watch:${subscriptionId}:${lessonId}`
   const [startingWatched] = useState(() => {
@@ -17,7 +23,7 @@ export default function LessonMedia({ url, title, api, subscriptionId, lessonId,
   const [watched, setWatched] = useState(startingWatched)
   const [status, setStatus] = useState('Tiến độ tự lưu khi xem video.')
   const saved = useEffectEvent((progress) => onSaved?.(progress))
-  const report = useEffectEvent((count, complete) => onWatch?.(count, complete))
+  const report = useEffectEvent((count, complete, seconds) => onWatch?.(count, complete, seconds))
   const drive = driveVideo(url)
   const source = drive ? `https://drive.google.com/uc?export=download&id=${drive.id}` : externalMediaUrl(url)
 
@@ -39,7 +45,12 @@ export default function LessonMedia({ url, title, api, subscriptionId, lessonId,
       stamp = now
       accumulated.current = total
       try { localStorage.setItem(cacheKey, JSON.stringify({ url, seconds: total })) } catch { /* Server autosave still works without browser storage. */ }
-      if (!disposed) setWatched(total)
+      if (!disposed) {
+        setWatched(total)
+        const seconds = Number.isFinite(video.duration) && video.duration > 0 ? Math.ceil(video.duration) : null
+        const count = Math.min(600000, video.ended ? Math.ceil(total) : Math.floor(total))
+        report(count, !!seconds && count >= seconds, seconds)
+      }
     }
     const save = () => {
       sample()
@@ -48,7 +59,7 @@ export default function LessonMedia({ url, title, api, subscriptionId, lessonId,
       if (count === lastSent && seconds === lastDuration) return
       lastSent = count
       lastDuration = seconds
-      report(count, !!seconds && count >= seconds)
+      if (!disposed) report(count, !!seconds && count >= seconds, seconds)
       const body = { duration_watched: count, completed: false, ...(seconds && seconds <= 600000 ? { duration_seconds: seconds } : {}) }
       pending = pending.catch(() => {}).then(() => api.request(`/subscriptions/${subscriptionId}/lessons/${lessonId}/watch`, { method: 'POST', body, keepalive: true }))
         .then((progress) => { if (!disposed) { setStatus('Đã lưu tiến độ.'); saved(progress) } })

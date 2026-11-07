@@ -140,11 +140,14 @@ Luồng ghi dự kiến:
 3. Khi điểm danh/xem bài: kiểm tra quyền còn hạn, lấy course từ progress/lesson,
    upsert `attendance` theo PK `(subscription_id, lesson_id)`. Hai FK ghép qua
    course bảo đảm lesson không bị gắn vào lần đăng ký khóa khác.
-4. Ghi attendance và cập nhật progress cùng transaction. Chính sách tính
-   `progress_percent`, `attendance_ratio` và điểm Live/VOD còn cần chốt; không
-   lấy tiến độ hay điểm cuối cùng do client tự gửi làm kết quả tin cậy.
-5. Khi đạt 100%, cập nhật `final_score`, `result`, `completed_at` đồng thời với
-   phần trăm để thỏa check. Chưa có công thức điểm hay ngưỡng excellent/good/failed.
+4. Ghi attendance và cập nhật progress cùng transaction. Bài VOD không có bài
+   tập tính theo thời lượng xem/tổng thời lượng; bài có bài tập dùng xác nhận
+   `assignment_completed` của quản trị. Lớp trực tiếp không có bài tập dùng
+   điểm danh. `progress_percent` là trung bình tiến độ bài; `attendance_ratio`
+   là tỷ lệ bài đã hoàn thành. Không nhận điểm cuối cùng từ client.
+5. Khi đạt 100%, ghi `completed_at`. `final_score/result` có thể để NULL khi
+   chưa đủ ba điểm. Khi đủ điểm, server tính trung bình giữa kỳ/cuối kỳ/thực
+   hành làm tròn half-up; từ 85 excellent, từ 50 good, dưới 50 failed.
 
 Các mẫu hiện có:
 

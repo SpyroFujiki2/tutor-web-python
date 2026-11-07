@@ -6,8 +6,9 @@ from uuid import UUID, uuid4
 from fastapi.testclient import TestClient
 from sqlalchemy import event, func, select, update
 
-from app.models import BookingSettlement, InternalTransaction, Wallet, WalletSnapshot
-from app.models.enums import WalletType
+from app.models import BookingSettlement, CashOrder, ExternalTransaction, InternalTransaction, Wallet, WalletSnapshot
+from app.models.enums import CashOrderStatus, CashOrderType, WalletType
+from app.modules.finance.cash_order import create_withdrawal
 from app.modules.common import MAX_CREDITS, now
 from app.modules.finance.internal_transaction import transfer
 from app.models.enums import TransactionType
@@ -42,7 +43,9 @@ class FinanceTests(DomainApiFixture):
         self.request('POST', f"/admin/settlements/{settlement['id']}/release", who='admin')
         return booking, settlement
 
-    def withdraw(self, amount, who='customer', kind='normal', confirm=False):
+    def withdraw(self, amount, who='tutor', kind='commercial', confirm=False):
+        if self.wallet(who, kind)['spendable_balance'] < amount:
+            self.move(self.wallet(who)['spendable_balance'], who=who)
         bank = self.bank(who)
         order = self.request('POST', '/me/withdrawals', {'request_id': str(uuid4()), 'wallet_type': kind,
             'payment_method_id': bank['id'], 'amount': amount}, who=who, expected=201)
@@ -54,31 +57,66 @@ class FinanceTests(DomainApiFixture):
         return self.request('POST', '/admin/finance/treasury/fund', {'request_id': str(uuid4()), 'amount': amount,
             'reason': 'Internal liquidity funding'}, who='head')
 
+    def test_normal_wallets_cannot_create_withdrawals_even_for_head_admin(self):
+        for who in ('customer', 'tutor', 'head'):
+            bank = self.bank(who)
+            before = self.wallet(who)
+            self.request('POST', '/me/withdrawals', {
+                'request_id': str(uuid4()), 'wallet_type': 'normal', 'payment_method_id': bank['id'], 'amount': 100,
+            }, who=who, expected=422)
+            with self.assertRaisesRegex(ValueError, 'Chỉ ví gia sư'):
+                with self.factory.begin() as session:
+                    create_withdrawal(session, self.ids[who], uuid4(), WalletType.NORMAL, UUID(bank['id']), 100)
+            self.assertEqual(self.wallet(who)['available_balance'], before['available_balance'])
+            self.assertEqual(self.wallet(who)['reserved_withdrawals'], 0)
+        with self.factory() as session:
+            self.assertEqual(session.scalar(select(func.count()).select_from(CashOrder)), 0)
+            self.assertEqual(session.scalar(select(func.count()).select_from(ExternalTransaction)), 0)
+
+    def test_legacy_pending_normal_withdrawal_cannot_be_paid_but_can_be_cancelled(self):
+        bank = self.bank()
+        wallet = self.wallet()
+        identity = uuid4()
+        with self.factory.begin() as session:
+            session.add(CashOrder(id=identity, user_id=self.ids['customer'], wallet_id=UUID(wallet['id']),
+                                 order_type=CashOrderType.OUT, amount_vnd=100, credit_amount=100,
+                                 bank_info={'payment_method_id': bank['id'], 'bank_name': 'Example Bank',
+                                            'account_number': '123456789', 'account_holder_name': 'Customer'},
+                                 status=CashOrderStatus.PENDING, created_at=now(), updated_at=now()))
+        self.request('POST', f'/admin/cash-orders/{identity}/decision', {'success': True, 'reason': 'Attempt legacy normal withdrawal'}, who='head', expected=400)
+        self.assertEqual(self.wallet()['available_balance'], 1000)
+        self.assertEqual(self.request('GET', f'/me/cash-orders/{identity}')['status'], 'pending')
+        with self.factory() as session:
+            self.assertEqual(session.scalar(select(func.count()).select_from(ExternalTransaction)), 0)
+        self.request('POST', f'/me/cash-orders/{identity}/cancel')
+        self.assertEqual(self.wallet()['reserved_withdrawals'], 0)
+
     def late_refund(self, booking, expected=200):
         return self.request('POST', f"/admin/bookings/{booking['id']}/refund-released", {'reason': 'Verified service cancellation'}, who='head', expected=expected)
 
     def test_bank_normalization_duplicate_detection_and_pending_edit_guard(self):
-        bank = self.bank()
+        bank = self.bank('tutor')
         self.assertEqual(bank['bank_name'], 'Example Bank')
         self.assertEqual(bank['account_holder_name'], 'Account Holder')
         self.assertEqual(bank['account_number_masked'], '****6789')
-        self.request('POST', '/me/payment-methods', {'bank_name': 'Other', 'account_number': '123456789', 'account_holder_name': 'Holder'}, expected=400)
-        order = self.request('POST', '/me/withdrawals', {'request_id': str(uuid4()), 'payment_method_id': bank['id'], 'amount': 500}, expected=201)
+        self.request('POST', '/me/payment-methods', {'bank_name': 'Other', 'account_number': '123456789', 'account_holder_name': 'Holder'}, who='tutor', expected=400)
+        self.move(1000)
+        order = self.request('POST', '/me/withdrawals', {'request_id': str(uuid4()), 'payment_method_id': bank['id'], 'amount': 500}, who='tutor', expected=201)
         changed = {'bank_name': 'Changed bank', 'account_number': '987654321', 'account_holder_name': 'Holder'}
-        self.request('PUT', f"/me/payment-methods/{bank['id']}", changed, expected=400)
-        self.request('POST', f"/me/cash-orders/{order['id']}/cancel")
-        self.request('PUT', f"/me/payment-methods/{bank['id']}", changed)
+        self.request('PUT', f"/me/payment-methods/{bank['id']}", changed, who='tutor', expected=400)
+        self.request('POST', f"/me/cash-orders/{order['id']}/cancel", who='tutor')
+        self.request('PUT', f"/me/payment-methods/{bank['id']}", changed, who='tutor')
 
     def test_cancel_pending_withdrawal_releases_reservation_once_and_checks_owner(self):
         order, _ = self.withdraw(950)
-        wallet = self.wallet()
+        wallet = self.wallet('tutor', 'commercial')
         self.assertEqual(wallet['available_balance'], 1000)
         self.assertEqual(wallet['reserved_withdrawals'], 950)
         self.assertEqual(wallet['spendable_balance'], 50)
         self.request('POST', f"/me/cash-orders/{order['id']}/cancel", who='other', expected=404)
         for _ in range(2):
-            self.assertTrue(self.request('POST', f"/me/cash-orders/{order['id']}/cancel")['cancelled_by_user'])
-        self.assertEqual(self.wallet()['spendable_balance'], 1000)
+            self.assertTrue(self.request('POST', f"/me/cash-orders/{order['id']}/cancel", who='tutor')['cancelled_by_user'])
+        self.assertEqual(self.wallet('tutor', 'commercial')['spendable_balance'], 1000)
         self.request('POST', f"/admin/cash-orders/{order['id']}/decision", {'success': True, 'reason': 'Late confirmation'}, who='head', expected=400)
 
     def test_own_transfer_is_idempotent_and_rejects_changed_request(self):
@@ -92,12 +130,12 @@ class FinanceTests(DomainApiFixture):
 
     def test_transfers_respect_pending_withdrawals_and_never_expose_counterparty_balances(self):
         order, _ = self.withdraw(990, who='tutor')
-        self.move(11, expected=400)
-        entry = self.move(10)
+        self.move(11, source='commercial', destination='normal', expected=400)
+        entry = self.move(10, source='commercial', destination='normal')
         self.assertNotIn('source_balance_before', entry)
         self.assertNotIn('destination_balance_after', entry)
         self.request('POST', f"/me/cash-orders/{order['id']}/cancel", who='tutor')
-        self.move(100)
+        self.move(100, source='commercial', destination='normal')
 
     def test_transfer_retry_returns_original_receipt_even_after_wallet_freeze(self):
         identity = uuid4()
@@ -145,10 +183,10 @@ class FinanceTests(DomainApiFixture):
 
     def test_manual_withdrawal_correction_credits_back_without_reopening_original_order(self):
         order, _ = self.withdraw(300, confirm=True)
-        original = self.request('GET', '/me/wallets/normal/external-history')[0]
+        original = self.request('GET', '/me/wallets/commercial/external-history', who='tutor')[0]
         self.request('POST', f"/admin/external-transactions/{original['id']}/reverse", {'request_id': str(uuid4()), 'reason': 'Returned funds verified'}, who='head')
-        self.assertEqual(self.balance(), 1000)
-        self.assertEqual(self.request('GET', f"/me/cash-orders/{order['id']}")['status'], 'success')
+        self.assertEqual(self.balance('tutor', WalletType.COMMERCIAL), 1000)
+        self.assertEqual(self.request('GET', f"/me/cash-orders/{order['id']}", who='tutor')['status'], 'success')
 
     def test_freezing_wallet_blocks_spend_but_keeps_history_and_allows_entitlement_refund(self):
         course, _ = self.create_course()
@@ -164,6 +202,33 @@ class FinanceTests(DomainApiFixture):
         self.request('POST', f"/admin/subscriptions/{subscription['id']}/refund", {'reason': 'Approved cancellation'}, who='admin')
         self.assertEqual(self.balance(), 1000)
         self.assertFalse(self.wallet()['is_active'])
+
+    def test_pending_manual_deposit_can_be_confirmed_after_wallet_freeze_without_unlocking_it(self):
+        order = self.deposit()
+        wallet = self.wallet()
+        self.request('POST', f"/admin/wallets/{wallet['id']}/status", {
+            'is_active': False, 'reason': 'Account review after order creation',
+        }, who='head')
+        self.confirm(order)
+        self.confirm(order)
+        current = self.wallet()
+        self.assertEqual(current['available_balance'], 1200)
+        self.assertEqual(current['spendable_balance'], 0)
+        self.assertFalse(current['is_active'])
+        self.assertEqual(len(self.request('GET', '/me/wallets/normal/external-history')), 1)
+        self.request('POST', '/me/deposits', {'request_id': str(uuid4()), 'package_id': order['package_id']}, expected=404)
+
+    def test_pending_withdrawal_cannot_be_paid_after_wallet_freeze(self):
+        order, _ = self.withdraw(100)
+        wallet = self.wallet('tutor', 'commercial')
+        self.request('POST', f"/admin/wallets/{wallet['id']}/status", {
+            'is_active': False, 'reason': 'Payout account review',
+        }, who='head')
+        self.request('POST', f"/admin/cash-orders/{order['id']}/decision", {
+            'success': True, 'reason': 'Attempt frozen payout',
+        }, who='head', expected=400)
+        self.assertEqual(self.wallet('tutor', 'commercial')['available_balance'], wallet['available_balance'])
+        self.assertEqual(self.request('GET', f"/me/cash-orders/{order['id']}", who='tutor')['status'], 'pending')
 
     def test_commercial_contract_changes_do_not_rewrite_existing_settlement(self):
         booking = self.completed_booking()

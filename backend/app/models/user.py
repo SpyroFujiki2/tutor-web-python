@@ -13,6 +13,7 @@ class User(Base):
 
     id: Mapped[UUID] = mapped_column(primary_key=True)
     email: Mapped[str | None] = mapped_column(String, unique=True)
+    full_name: Mapped[str | None] = mapped_column(String(200))
     password_hash: Mapped[str | None] = mapped_column(String)
     role: Mapped[UserRole | None] = mapped_column(user_role_enum)
     status: Mapped[UserStatus | None] = mapped_column(user_status_enum, server_default=text("'active'"))

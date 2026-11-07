@@ -77,6 +77,22 @@ class VNPAYApiTests(VNPAYFixture):
         self.assertEqual(response.json()['RspCode'], '97')
         self.assertEqual(self.balance(), 1000)
 
+    def test_confirmed_ipn_credits_an_existing_order_after_wallet_freeze_without_unlocking_it(self):
+        checkout = self.checkout()
+        wallet = self.request('GET', '/me/wallets')[0]
+        self.request('POST', f"/admin/wallets/{wallet['id']}/status", {
+            'is_active': False, 'reason': 'Account review after checkout',
+        }, who='head')
+        params = self.callback(checkout)
+        self.assertEqual(self.ipn(params)['RspCode'], '00')
+        self.assertEqual(self.ipn(params)['RspCode'], '02')
+        current = self.request('GET', '/me/wallets')[0]
+        self.assertEqual(current['available_balance'], 1200)
+        self.assertEqual(current['spendable_balance'], 0)
+        self.assertFalse(current['is_active'])
+        with self.factory() as session:
+            self.assertEqual(session.scalar(select(func.count()).select_from(ExternalTransaction)), 1)
+
     def test_wrong_merchant_unknown_order_and_wrong_signed_amount_are_rejected(self):
         checkout = self.checkout()
         self.assertEqual(self.ipn(self.callback(checkout, vnp_TmnCode='OTHER123'))['RspCode'], '97')

@@ -3,6 +3,7 @@ import { Action, Badge, Details, Form, Pager, Resource } from './Workspace.jsx'
 import { money, numberField, textField, useResource } from './workspace-utils.js'
 import PageHeading from './PageHeading.jsx'
 import Icon from './Icon.jsx'
+import WithdrawalForm from './WithdrawalForm.jsx'
 
 const bankFields = [textField('bank_name', 'Ngân hàng'), textField('account_number', 'Số tài khoản', { minLength: 4, maxLength: 40 }), textField('account_holder_name', 'Tên chủ tài khoản')]
 
@@ -61,11 +62,7 @@ export default function Wallet({ api, user }) {
       }} /></details>
     </li>)}</ul>}</Resource><details><summary>Thêm ngân hàng</summary><Form fields={bankFields} reset onSubmit={async (values) => { await api.request('/me/payment-methods', { method: 'POST', body: values }); refresh() }} /></details></section>
       <section className="card card-body"><h2>Yêu cầu rút tiền</h2><p>Quy đổi rút: 1 credit = 1 VND.</p>
-        {banks.data?.length > 0 && wallets.data && <Form key={version} fields={[
-          { name: 'wallet_type', label: 'Ví nguồn', options: wallets.data.filter((row) => row.is_active).map((row) => row.type), default: 'normal' },
-          { name: 'payment_method_id', label: 'Ngân hàng nhận', options: banks.data.map((row) => ({ value: row.id, label: `${row.bank_name} ${row.account_number_masked}` })) },
-          numberField('amount', 'Số credit rút', { min: 1 }),
-        ]} submit="Tạo đơn rút" onSubmit={async (values, requestId) => { await api.request('/me/withdrawals', { method: 'POST', body: { ...values, request_id: requestId } }); refresh() }} />}
+        {wallets.loading || banks.loading ? <p role="status" className="muted">Đang tải thông tin rút tiền…</p> : wallets.error || banks.error ? <p role="alert">Chưa tải được thông tin rút tiền. <button onClick={refresh}>Thử lại</button></p> : <WithdrawalForm key={version} wallets={wallets.data ?? []} banks={banks.data ?? []} onSubmit={async (values, requestId) => { await api.request('/me/withdrawals', { method: 'POST', body: { ...values, request_id: requestId } }); refresh() }} />}
       </section></div>
     <h2>Đơn nạp / rút</h2><button onClick={refresh}>Cập nhật số dư & đơn</button><Resource resource={orders} empty="Chưa có đơn thanh toán.">{(rows) => <><div className="card-grid">{rows.map((row) => <article className="card card-body" key={row.id}><Badge value={row.status} /><p>{row.provider === 'vnpay' ? 'VNPAY' : 'Xác nhận thủ công'}</p><Details row={row} fields={['id', 'order_type', 'credit_amount', 'amount_vnd', 'created_at']} />
       {row.provider === 'vnpay' && <p className={`payment-state ${row.status === 'success' ? 'is-success' : ''}`}><Icon name={row.status === 'success' ? 'check' : 'clock'} size={17} />{row.status === 'success' ? 'Đã cộng credit vào ví.' : row.status === 'pending' ? 'Chờ VNPAY xác nhận · Không cần admin duyệt.' : 'Đã cập nhật theo kết quả thanh toán VNPAY.'}</p>}

@@ -52,12 +52,13 @@ def add(session, model, **values):
     return row
 
 
-def audit(session, user, row, action, *, before=None, after=None, reason="Thao tác quản trị"):
+def audit(session, user, row, action, *, before=None, after=None, reason="Thao tác quản trị", operation=None):
     from app.modules.users.action_log import record_admin_action
     return record_admin_action(
         session, admin_id=user.id, target_type=row.__tablename__,
         target_id=getattr(row, "id", getattr(row, "subscription_id", None)), action_code=action,
         old_value=before, new_value=after, reason=reason,
+        operation=operation,
         target_user_id=row.id if isinstance(row, User) else getattr(row, "user_id", None),
     )
 

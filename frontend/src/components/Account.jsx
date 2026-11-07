@@ -2,12 +2,13 @@ import { Action, Details, Form, Resource } from './Workspace.jsx'
 import { date, textField, useResource } from './workspace-utils.js'
 import PageHeading from './PageHeading.jsx'
 
-export default function Account({ api, user, onLogout }) {
+export default function Account({ api, user, onLogout, onProfileChange }) {
   const roles = useResource(api, '/me/role-requests?limit=100')
   const reports = useResource(api, '/me/reports?limit=100')
   const settlements = useResource(api, '/me/settlements?limit=100')
   const sessions = useResource(api, '/auth/sessions')
-  return <section className="account-page"><PageHeading eyebrow="KHÔNG GIAN RIÊNG CỦA BẠN" title="Tài khoản & bảo mật" description="Cập nhật thông tin, quản lý các phiên đăng nhập và theo dõi yêu cầu của bạn." icon="settings" /><div className="split"><div className="card card-body"><h2>Thông tin đăng nhập</h2><Details row={user} fields={['email', 'role', 'status']} />
+  return <section className="account-page"><PageHeading eyebrow="KHÔNG GIAN RIÊNG CỦA BẠN" title="Tài khoản & bảo mật" description="Cập nhật thông tin, quản lý các phiên đăng nhập và theo dõi yêu cầu của bạn." icon="settings" /><div className="split"><div className="card card-body"><h2>Thông tin cá nhân</h2><Details row={{ ...user, full_name: user.full_name || 'Chưa cập nhật' }} fields={['full_name', 'email', 'role', 'status']} />
+    <details><summary>Cập nhật họ tên</summary><Form fields={[textField('full_name', 'Họ và tên', { maxLength: 200, autoComplete: 'name' })]} initial={user} submit="Lưu họ tên" onSubmit={async (values) => { const updated = await api.request('/auth/profile', { method: 'PATCH', body: values }); onProfileChange(updated) }} /></details>
     <details><summary>Đổi mật khẩu</summary><Form fields={[
       textField('old_password', 'Mật khẩu hiện tại', { type: 'password', autoComplete: 'current-password' }),
       textField('new_password', 'Mật khẩu mới', { type: 'password', minLength: 8, autoComplete: 'new-password' }),

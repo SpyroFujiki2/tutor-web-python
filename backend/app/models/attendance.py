@@ -22,3 +22,4 @@ class Attendance(Base):
     lesson_id: Mapped[UUID] = mapped_column(primary_key=True)
     is_absent: Mapped[bool] = mapped_column(Boolean, server_default=text("true"))
     duration_watched: Mapped[int] = mapped_column(Integer, server_default=text("0"))
+    assignment_completed: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))

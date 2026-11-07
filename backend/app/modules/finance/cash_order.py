@@ -55,6 +55,7 @@ def create_deposit(session: Session, user_id: UUID, request_id: UUID, package_id
 
 def create_withdrawal(session: Session, user_id: UUID, request_id: UUID, wallet_type: WalletType, method_id: UUID, amount: int) -> CashOrder:
     actor(session, user_id, lock=True)
+    require(wallet_type == WalletType.COMMERCIAL, 'Chỉ ví gia sư được rút tiền')
     existing = session.get(CashOrder, request_id)
     if existing:
         require(existing.user_id == user_id and existing.order_type == CashOrderType.OUT
@@ -93,6 +94,9 @@ def decide_cash_order(session: Session, admin_id: UUID, order_id: UUID, success:
         require(order.status == target, "Đơn đã được xử lý với kết quả khác")
         return order
     if success:
+        if order.order_type == CashOrderType.OUT:
+            require(get(session, Wallet, order.wallet_id).type == WalletType.COMMERCIAL,
+                    'Không thể duyệt rút tiền từ ví cá nhân')
         log = audit(session, admin, order, "cash.confirm", after={"status": target}, reason=reason)
         from app.modules.finance.external_transaction import record_manual_movement
         record_manual_movement(session, order, admin.id, log.id)

@@ -185,6 +185,23 @@ class PaymentVerificationTests(VNPAYFixture):
             log = session.scalar(select(ActionLog).where(ActionLog.action_code == 'vnpay.querydr'))
             self.assertIsNotNone(log)
 
+    def test_verified_query_credits_existing_order_after_wallet_freeze_without_unlocking_it(self):
+        order = self.checkout()
+        wallet = self.request('GET', '/me/wallets')[0]
+        self.request('POST', f"/admin/wallets/{wallet['id']}/status", {
+            'is_active': False, 'reason': 'Account review after checkout',
+        }, who='head')
+        with patch('app.api.routes.vnpay.query_transaction', return_value=self.query_response(order)):
+            self.assertTrue(self.verify(order)['credited'])
+            self.assertTrue(self.verify(order)['credited'])
+        current = self.request('GET', '/me/wallets')[0]
+        self.assertEqual(current['available_balance'], 1200)
+        self.assertEqual(current['spendable_balance'], 0)
+        self.assertFalse(current['is_active'])
+        self.assertEqual(self.ipn(self.callback(order))['RspCode'], '02')
+        with self.factory() as session:
+            self.assertEqual(session.scalar(select(func.count()).select_from(ExternalTransaction)), 1)
+
     def test_signed_query_without_optional_command_credits_once_using_server_ip(self):
         order = self.checkout()
         response = self.query_response(order)

@@ -36,7 +36,7 @@ def save_credit_package(session: Session, admin_id: UUID, values: dict, package_
     before = {key: getattr(row, key) for key in values} if package_id else None
     for key, value in {**values, 'name': name}.items():
         setattr(row, key, value)
-    audit(session, admin, row, 'credit_package.save', before=before, after={**values, 'name': name})
+    audit(session, admin, row, 'credit_package.save', before=before, after={**values, 'name': name}, operation='POST' if package_id is None else 'PUT')
     return row
 
 

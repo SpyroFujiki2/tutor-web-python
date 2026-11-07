@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import DateTime, ForeignKey, Index, String, Text
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -11,7 +11,8 @@ from app.models.base import Base
 
 class ActionLog(Base):
     __tablename__ = "action_logs"
-    __table_args__ = (Index(None, "target_user_id"), Index(None, "target_id"), Index(None, "created_at"))
+    __table_args__ = (Index(None, "target_user_id"), Index(None, "target_id"), Index(None, "created_at"),
+                     CheckConstraint("operation IS NULL OR operation IN ('INSERT','SELECT','UPDATE','DELETE','OTHER','GET','POST','PUT','PATCH')", name="valid_operation"))
 
     id: Mapped[UUID] = mapped_column(primary_key=True)
     admin_id: Mapped[UUID | None] = mapped_column(ForeignKey("users.id"))
@@ -19,6 +20,7 @@ class ActionLog(Base):
     target_type: Mapped[str | None] = mapped_column(String)
     target_id: Mapped[UUID | None]
     action_code: Mapped[str | None] = mapped_column(String)
+    operation: Mapped[str | None] = mapped_column(String(10))
     old_value: Mapped[Any | None] = mapped_column(JSONB, nullable=True)
     new_value: Mapped[Any | None] = mapped_column(JSONB, nullable=True)
     reason: Mapped[str | None] = mapped_column(Text)

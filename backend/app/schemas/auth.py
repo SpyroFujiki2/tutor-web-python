@@ -23,6 +23,7 @@ class CurrentUserResponse(BaseModel):
 
     id: UUID
     email: str | None
+    full_name: str | None = None
     role: UserRole | None
     status: UserStatus
 
@@ -39,6 +40,12 @@ class RegisterRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     email: EmailStr = Field(max_length=320)
     password: SecretStr = Field(min_length=8, max_length=1024)
+    full_name: str | None = Field(default=None, min_length=1, max_length=200, pattern=r"\S")
+
+
+class ProfileRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    full_name: str = Field(min_length=1, max_length=200)
 
 
 class ChangePasswordRequest(BaseModel):

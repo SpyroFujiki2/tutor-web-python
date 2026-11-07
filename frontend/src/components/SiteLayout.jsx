@@ -15,13 +15,13 @@ export function Brand() {
 
 export function Header({ user, pathname, theme, onThemeChange, onLogout }) {
   const [menuOpen, setMenuOpen] = useState(false)
-  const initial = (user?.email ?? 'T').charAt(0).toUpperCase()
+  const initial = (user?.full_name ?? user?.email ?? 'T').charAt(0).toUpperCase()
   return <header className="site-header"><div className="header-inner container">
     <Brand />
     <nav className="desktop-nav" aria-label="Điều hướng chính">{publicLinks.map(([href, label]) => <SiteLink href={href} key={href} aria-current={pathname === href ? 'page' : undefined}>{label}</SiteLink>)}{isAdmin(user) && <Dropdown label="Quản trị" icon="grid" active={pathname === '/admin'} className="header-admin" align="right"><div className="admin-mega-menu">{adminGroups.map((group) => <div className="menu-group" key={group.id}><p><Icon name={group.icon} size={15} />{group.label}</p>{group.items.map((item) => <SiteLink href={adminHref(item.id)} key={item.id}>{item.label}<Icon name="arrow" size={13} /></SiteLink>)}</div>)}</div></Dropdown>}</nav>
     <div className="header-actions">
       <button type="button" className="icon-button theme-toggle" onClick={onThemeChange} aria-label={theme === 'dark' ? 'Chuyển sang giao diện sáng' : 'Chuyển sang giao diện tối'} title={theme === 'dark' ? 'Giao diện sáng' : 'Giao diện tối'}><Icon name={theme === 'dark' ? 'sun' : 'moon'} /></button>
-      {user ? <Dropdown className="account-dropdown" align="right" label={<><span className="avatar">{initial}</span><span className="account-name">{user.email?.split('@')[0]}</span><span className="sr-only">Menu tài khoản</span></>}><div className="dropdown-user"><span className="dropdown-caption">ĐANG ĐĂNG NHẬP</span><strong>{user.email}</strong><Badge value={user.role} /></div>
+      {user ? <Dropdown className="account-dropdown" align="right" label={<><span className="avatar">{initial}</span><span className="account-name" title={user.full_name || user.email}>{user.full_name || user.email?.split('@')[0]}</span><span className="sr-only">Menu tài khoản</span></>}><div className="dropdown-user"><span className="dropdown-caption">ĐANG ĐĂNG NHẬP</span>{user.full_name && <strong>{user.full_name}</strong>}<span>{user.email}</span><Badge value={user.role} /></div>
         {workspaceLinks.map(([href, icon, label]) => <SiteLink key={href} href={href}><Icon name={icon} size={17} />{label}</SiteLink>)}
         {isAdmin(user) && <SiteLink href="/admin"><Icon name="shield" size={17} />Quản trị</SiteLink>}
         <Action className="logout-button" onClick={onLogout}><Icon name="logout" size={17} />Đăng xuất</Action>

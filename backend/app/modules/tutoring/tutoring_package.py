@@ -41,7 +41,7 @@ def save_tutoring_package(
         session, TutoringPackage, name=name, price=price, is_active=values["is_active"])
     before = {"name": row.name, "price": row.price, "is_active": row.is_active} if package_id else None
     row.name, row.price, row.is_active = name, price, values["is_active"]
-    audit(session, admin, row, "tutoring_package.save", before=before,
+    audit(session, admin, row, "tutoring_package.save", before=before, operation='POST' if package_id is None else 'PUT',
           after={"name": name, "price": price, "is_active": row.is_active})
     return row
 

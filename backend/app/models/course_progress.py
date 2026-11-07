@@ -21,7 +21,8 @@ class CourseProgress(Base):
         ),
         CheckConstraint(
             "(progress_percent < 100 AND result IS NULL AND completed_at IS NULL) OR "
-            "(progress_percent = 100 AND result IS NOT NULL AND final_score IS NOT NULL AND completed_at IS NOT NULL)",
+            "(progress_percent = 100 AND completed_at IS NOT NULL AND "
+            "((result IS NULL AND final_score IS NULL) OR (result IS NOT NULL AND final_score IS NOT NULL)))",
             name="completion_requires_result",
         ),
     )

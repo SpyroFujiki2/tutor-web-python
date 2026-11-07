@@ -165,6 +165,21 @@ tự nhận một webhook chưa được VNPAY gửi tới.
 Việc chưa thấy IPN trong log cũng chưa đủ chứng minh URL chưa đăng ký; cần
 đối chiếu cấu hình riêng của đúng merchant và lịch sử gửi callback phía VNPAY.
 
+## YouTube
+
+Link `watch?v=...`, `youtu.be/...`, `/shorts/...`, `/live/...` và `/embed/...`
+được chuẩn hóa thành trình phát nhúng YouTube trên trang bài học. IFrame API
+cung cấp thời lượng và vị trí phát để tự lưu qua `/watch` mỗi 10 giây, khi
+dừng/kết thúc/đổi bài. Thời gian tua không được tính; dữ liệu chờ lưu được
+giữ trong trình duyệt để thử gửi lại sau lỗi mạng.
+
+Iframe dùng `enablejsapi`, origin thực tế của website và
+`referrerPolicy=strict-origin-when-cross-origin` để giữ định danh website.
+Không tải/xử lý lại luồng video YouTube và không cần API key. Video riêng tư,
+bị xóa, hạn chế quyền nhúng hoặc bị trình duyệt chặn được báo bằng thông báo
+hướng tới người học, có lựa chọn thử lại/xem trên YouTube.
+Xem [tài liệu IFrame API](https://developers.google.com/youtube/iframe_api_reference).
+
 ## Google Drive
 
 Thư mục nguồn do người dùng cung cấp:

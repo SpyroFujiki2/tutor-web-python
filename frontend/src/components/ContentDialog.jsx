@@ -1,15 +1,15 @@
 import { useEffect, useId, useRef } from 'react'
 import Icon from './Icon.jsx'
+import { lockPageScroll } from '../services/dialog-scroll.js'
 
 export default function ContentDialog({ title, onClose, children, className = '' }) {
   const ref = useRef(null)
   const titleId = useId()
   useEffect(() => {
     const dialog = ref.current
-    const previousOverflow = document.body.style.overflow
     dialog.showModal()
-    document.body.style.overflow = 'hidden'
-    return () => { dialog.close(); document.body.style.overflow = previousOverflow }
+    const unlock = lockPageScroll(document.body)
+    return () => { dialog.close(); unlock() }
   }, [])
   return <dialog ref={ref} className={`content-dialog ${className}`} aria-labelledby={titleId} onCancel={(event) => { event.preventDefault(); onClose() }} onClick={(event) => {
     if (event.target !== event.currentTarget) return

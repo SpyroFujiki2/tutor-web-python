@@ -139,14 +139,38 @@ class PostgreSQLConcurrencyTests(PostgreSQLFixture):
                                  return_url='http://localhost:5173/payment/vnpay-return')
         identity = uuid4()
         with self.factory.begin() as session:
+            session.get(CreditPackage, self.credits).price = 5000
             checkout(session, self.customer, identity, self.credits, settings, '127.0.0.1')
-        params = {'vnp_TmnCode': settings.tmn_code, 'vnp_TxnRef': identity.hex, 'vnp_Amount': '20000',
+        params = {'vnp_TmnCode': settings.tmn_code, 'vnp_TxnRef': identity.hex, 'vnp_Amount': '500000',
                   'vnp_ResponseCode': '00', 'vnp_TransactionStatus': '00', 'vnp_TransactionNo': '12345678'}
         def operation(session):
             self.assertIn(apply_ipn(session, params, settings)['RspCode'], {'00', '02'})
         self.assertEqual(self.race(operation, operation), ['ok', 'ok'])
         self.assertEqual(self.balance(), 1200)
         with self.factory() as session:
+            self.assertEqual(session.scalar(select(func.count()).select_from(ExternalTransaction)), 1)
+
+    def test_parallel_verified_payments_credit_frozen_wallet_once_and_leave_it_frozen(self):
+        from app.core.vnpay import VNPAYSettings
+        from app.modules.finance.vnpay import apply_ipn, checkout
+        from app.models import ExternalTransaction
+        settings = VNPAYSettings(tmn_code='TEST1234', hash_secret='test-only-secret',
+                                 return_url='http://localhost:5173/payment/vnpay-return')
+        order_id = uuid4()
+        with self.factory.begin() as session:
+            session.get(CreditPackage, self.credits).price = 5000
+            checkout(session, self.customer, order_id, self.credits, settings, '127.0.0.1')
+            order = session.get(CashOrder, order_id)
+            wallet = session.get(Wallet, order.wallet_id)
+            wallet.is_active = False
+        params = {'vnp_TmnCode': settings.tmn_code, 'vnp_TxnRef': order.id.hex, 'vnp_Amount': '500000',
+                  'vnp_ResponseCode': '00', 'vnp_TransactionStatus': '00', 'vnp_TransactionNo': '12345678'}
+        def operation(session):
+            self.assertIn(apply_ipn(session, params, settings)['RspCode'], {'00', '02'})
+        self.assertEqual(self.race(operation, operation), ['ok', 'ok'])
+        self.assertEqual(self.balance(), 1200)
+        with self.factory() as session:
+            self.assertFalse(session.get(Wallet, order.wallet_id).is_active)
             self.assertEqual(session.scalar(select(func.count()).select_from(ExternalTransaction)), 1)
 
 

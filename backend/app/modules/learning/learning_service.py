@@ -13,10 +13,12 @@ from app.modules.learning.lesson import list_my_course_lessons
 
 def save_course(session, admin_id, values, course_id=None):
     admin = actor(session, admin_id, admin=True)
+    before = None
     if course_id is None:
         row = add(session, Course, **values, created_at=now(), updated_at=now())
     else:
         row = get(session, Course, course_id, lock=True)
+        before = {key: getattr(row, key) for key in ('title', 'price', 'status', 'is_live')}
         # Live/VOD affects completion rules; don't reinterpret existing purchases.
         if row.is_live != values["is_live"]:
             require(not session.scalar(select(CourseProgress.subscription_id).where(CourseProgress.course_id == row.id).limit(1)),
@@ -24,12 +26,13 @@ def save_course(session, admin_id, values, course_id=None):
         for key, value in values.items():
             setattr(row, key, value)
         row.updated_at = now()
-    audit(session, admin, row, "course.save", after={"title": row.title, "price": row.price, "status": row.status})
+    audit(session, admin, row, "course.save", before=before, after={"title": row.title, "price": row.price, "status": row.status, "is_live": row.is_live}, operation='POST' if course_id is None else 'PUT')
     return row
 
 
 def save_lesson(session, admin_id, course_id, values, lesson_id=None):
     admin = actor(session, admin_id, admin=True)
+    before = None
     course = get(session, Course, course_id, lock=True)
     require(not session.scalar(select(CourseProgress.subscription_id).where(CourseProgress.course_id == course_id).limit(1)),
             "Cấu trúc bài học đã có học viên được cố định; tạo khóa mới để đổi nội dung")
@@ -37,12 +40,13 @@ def save_lesson(session, admin_id, course_id, values, lesson_id=None):
         row = add(session, Lesson, course_id=course_id, **values)
     else:
         row = get(session, Lesson, lesson_id, lock=True)
+        before = {'order_idx': row.order_idx}
         require(row.course_id == course_id, "Bài học không thuộc khóa", LookupError)
         if row.media_url != values.get("media_url"):
             row.duration_seconds = None
         for key, value in values.items():
             setattr(row, key, value)
-    audit(session, admin, row, "lesson.save", after={"order_idx": row.order_idx})
+    audit(session, admin, row, "lesson.save", before=before, after={"order_idx": row.order_idx}, operation='POST' if lesson_id is None else 'PUT')
     return row
 
 
@@ -95,31 +99,59 @@ def purchase_course(session, user_id, course_id, request_id):
     return subscription
 
 
+def learning_percent(ratio):
+    rounded = (ratio * 100).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+    return min(Decimal('99.99'), rounded) if ratio < 1 else Decimal('100.00')
+
+
+def lesson_progress_rows(course, lessons, attendance):
+    result = []
+    for lesson in lessons:
+        row = attendance.get(lesson.id)
+        duration = lesson.duration_seconds or (lesson.duration_minutes * 60 if lesson.duration_minutes else None)
+        watched = max(0, row.duration_watched or 0) if row else 0
+        has_assignment = bool(lesson.assignment_url and lesson.assignment_url.strip())
+        assignment_completed = bool(row and row.assignment_completed)
+        if has_assignment:
+            fraction = Decimal(1) if assignment_completed else Decimal(0)
+        elif course.is_live:
+            fraction = Decimal(1) if row and not row.is_absent else Decimal(0)
+        elif duration:
+            fraction = min(Decimal(1), Decimal(watched) / Decimal(duration))
+        else:
+            fraction = Decimal(0)
+        result.append({
+            'lesson_id': lesson.id, 'duration_seconds': duration,
+            'duration_watched': min(watched, duration) if duration else watched,
+            'has_assignment': has_assignment, 'assignment_completed': assignment_completed,
+            'progress_percent': learning_percent(fraction), 'is_completed': fraction == 1,
+            '_fraction': fraction,
+        })
+    return result
+
+
 def recalculate(session, progress):
     course = get(session, Course, progress.course_id)
-    lessons = list(session.scalars(select(Lesson).where(Lesson.course_id == course.id)))
-    rows = {row.lesson_id: row for row in session.scalars(select(Attendance).where(
+    lessons = list(session.scalars(select(Lesson).where(Lesson.course_id == course.id).order_by(Lesson.order_idx)))
+    attendance = {row.lesson_id: row for row in session.scalars(select(Attendance).where(
         Attendance.subscription_id == progress.subscription_id))}
-    complete = 0
-    for lesson in lessons:
-        attendance = rows.get(lesson.id)
-        duration = lesson.duration_seconds or (lesson.duration_minutes * 60 if lesson.duration_minutes else None)
-        if attendance and (not attendance.is_absent if course.is_live or duration is None else
-                           attendance.duration_watched >= duration):
-            complete += 1
-    ratio = Decimal(complete) / len(lessons) if lessons else Decimal(0)
-    progress.attendance_ratio = ratio.quantize(Decimal("0.0001"))
+    parts = lesson_progress_rows(course, lessons, attendance)
+    complete = sum(part['is_completed'] for part in parts)
+    ratio = sum((part['_fraction'] for part in parts), Decimal(0)) / len(parts) if parts else Decimal(0)
+    progress.attendance_ratio = (Decimal(complete) / len(parts) if parts else Decimal(0)).quantize(Decimal('0.0001'))
+    progress.progress_percent = learning_percent(ratio)
+    progress.lesson_progress = [{key: value for key, value in part.items() if key != '_fraction'} for part in parts]
+    progress.is_live = course.is_live
     grades = [progress.midterm_score, progress.endterm_score, progress.practice_score]
-    # 100% requires a server-side assessment, as required by the schema check.
-    percent = min(Decimal("99.99"), (ratio * 100).quantize(Decimal("0.01")))
-    if lessons and complete == len(lessons) and all(value is not None for value in grades):
-        score = int((sum(Decimal(value) for value in grades) / 3).quantize(Decimal(1), rounding=ROUND_HALF_UP))
-        progress.progress_percent = Decimal("100.00")
-        progress.final_score = score
-        progress.result = CourseResult.EXCELLENT if score >= 85 else CourseResult.GOOD if score >= 50 else CourseResult.FAILED
+    if parts and complete == len(parts):
         progress.completed_at = progress.completed_at or now()
+        if all(value is not None for value in grades):
+            score = int((sum(Decimal(value) for value in grades) / 3).quantize(Decimal(1), rounding=ROUND_HALF_UP))
+            progress.final_score = score
+            progress.result = CourseResult.EXCELLENT if score >= 85 else CourseResult.GOOD if score >= 50 else CourseResult.FAILED
+        else:
+            progress.final_score = progress.result = None
     else:
-        progress.progress_percent = percent
         progress.final_score = progress.result = progress.completed_at = None
     progress.updated_at = now()
     session.flush()
@@ -141,13 +173,19 @@ def record_attendance(session, user_id, subscription_id, lesson_id, duration_wat
         lesson.duration_seconds = duration_seconds
     expected = lesson.duration_seconds or (lesson.duration_minutes * 60 if lesson.duration_minutes else None)
     duration = min(duration_watched, expected) if expected else duration_watched
-    confirmed = (duration >= expected) if expected else completed
+    saved_duration = max(row.duration_watched if row else 0, duration)
+    if expected:
+        saved_duration = min(saved_duration, expected)
+    # Viewing never confirms assignments, and a client completion flag cannot
+    # replace the denominator when video metadata is still unavailable.
+    has_assignment = bool(lesson.assignment_url and lesson.assignment_url.strip())
+    confirmed = bool(row and row.assignment_completed) if has_assignment else bool(expected and saved_duration >= expected)
     if row is None:
         row = add(session, Attendance, subscription_id=subscription_id, lesson_id=lesson_id,
-                  course_id=lesson.course_id, duration_watched=duration, is_absent=not confirmed)
+                  course_id=lesson.course_id, duration_watched=saved_duration, is_absent=not confirmed)
     else:
-        row.duration_watched = max(row.duration_watched, duration)
-        row.is_absent = row.is_absent and not confirmed
+        row.duration_watched = saved_duration
+        row.is_absent = not confirmed
     # Watch time is self-reported, never used as a trusted final exam score.
     session.flush()
     return recalculate(session, progress)
@@ -160,6 +198,32 @@ def grade_course(session, admin_id, subscription_id, values):
         setattr(progress, key, value)
     recalculate(session, progress)
     audit(session, admin, progress, "course.grade", after=values)
+    return progress
+
+
+def confirm_assignment(session, admin_id, subscription_id, lesson_id, completed, reason):
+    admin = actor(session, admin_id, admin=True)
+    progress = get(session, CourseProgress, subscription_id, lock=True)
+    subscription = get(session, UserSubscription, subscription_id)
+    require(subscription.status == SubscriptionStatus.ACTIVE and subscription.activated_at <= now()
+            and (subscription.expired_at is None or subscription.expired_at > now()), 'Quyền học đã hết hạn')
+    lesson = get(session, Lesson, lesson_id)
+    require(lesson.course_id == progress.course_id, 'Bài học không thuộc khóa', LookupError)
+    require(bool(lesson.assignment_url and lesson.assignment_url.strip()), 'Bài học không có bài tập')
+    row = session.get(Attendance, (subscription_id, lesson_id))
+    previous = bool(row and row.assignment_completed)
+    if row is None:
+        row = add(session, Attendance, subscription_id=subscription_id, lesson_id=lesson_id,
+                  course_id=lesson.course_id, duration_watched=0, assignment_completed=completed)
+    else:
+        row.assignment_completed = completed
+    if not get(session, Course, progress.course_id).is_live:
+        row.is_absent = not completed
+    session.flush()
+    recalculate(session, progress)
+    audit(session, admin, progress, 'course.assignment',
+          before={'lesson_id': str(lesson_id), 'assignment_completed': previous},
+          after={'lesson_id': str(lesson_id), 'assignment_completed': completed}, reason=reason)
     return progress
 
 

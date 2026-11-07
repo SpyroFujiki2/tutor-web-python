@@ -122,7 +122,7 @@ def seed_demo_data(session, values):
         row = session.get(TutoringPackage, seed_package_id(index), with_for_update=True)
         if row is None:
             row = add(session, TutoringPackage, id=seed_package_id(index), name=name, price=price, is_active=True)
-            audit(session, head, row, 'tutoring_package.save',
+            audit(session, head, row, 'tutoring_package.save', operation='POST',
                   after={'name': name, 'price': price, 'is_active': True}, reason='Explicit local demo seed')
             created_packages += 1
         packages.append({'id': str(row.id), 'name': row.name, 'price': row.price, 'is_active': row.is_active})

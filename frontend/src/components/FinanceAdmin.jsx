@@ -1,6 +1,8 @@
 import { useState } from 'react'
+import DataTable from './DataTable.jsx'
+import ContentDialog from './ContentDialog.jsx'
 import { Action, Details, Form, Pager, Resource } from './Workspace.jsx'
-import { money, numberField, reasonField, textField, useResource } from './workspace-utils.js'
+import { date, labels, money, numberField, reasonField, textField, useResource } from './workspace-utils.js'
 
 const issueLabels = {
   available_balance_mismatch: 'Số dư khả dụng không khớp ledger', holding_balance_mismatch: 'Tiền tạm giữ không khớp quyết toán',
@@ -17,6 +19,8 @@ export default function FinanceAdmin({ api, user }) {
   const treasury = useResource(api, '/admin/finance/treasury', version)
   const [jobResult, setJobResult] = useState('')
   const [jobSkips, setJobSkips] = useState([])
+  const [selected, setSelected] = useState(null)
+  const selectedWallet = wallets.data?.find((row) => row.id === selected?.id) ?? selected
   const refresh = () => setVersion((value) => value + 1)
   return <section><div className="row"><h2>Ví và đối soát nội bộ</h2><button onClick={refresh}>Làm mới</button></div>
     <Resource resource={treasury}>{(row) => <div className="card card-body"><h3>Ví nền tảng</h3><Details row={row} fields={['available_balance', 'spendable_balance']} /><p className="muted">Khoản còn tạm giữ cho gia sư được trừ khỏi phần có thể chi.</p>
@@ -33,7 +37,17 @@ export default function FinanceAdmin({ api, user }) {
       setJobSkips([])
     }} /></details>{jobResult && <p role="status" className="success">{jobResult}</p>}
     {jobSkips.length > 0 && <ul>{jobSkips.map((row) => <li key={row.settlement_id}>Quyết toán {row.settlement_id}: {row.detail}</li>)}</ul>}
-    <Resource resource={wallets}>{(rows) => <><div className="stack">{rows.map((row) => <WalletAdmin key={row.id} api={api} user={user} wallet={row} refresh={refresh} />)}</div><Pager offset={offset} setOffset={setOffset} length={rows.length} /></>}</Resource>
+    <Resource resource={wallets}>{(rows) => <><DataTable label="Danh sách ví" rows={rows} columns={[
+      { key: 'type', label: 'Loại ví', render: (row) => labels[row.type] ?? row.type },
+      { key: 'user_id', label: 'Chủ ví', render: (row) => <code className="table-reference">{row.user_id}</code> },
+      { key: 'available_balance', label: 'Số dư', render: (row) => money(row.available_balance) },
+      { key: 'spendable_balance', label: 'Có thể chi', render: (row) => money(row.spendable_balance) },
+      { key: 'holding_balance', label: 'Tạm giữ', render: (row) => money(row.holding_balance) },
+      { key: 'debt', label: 'Công nợ', render: (row) => money(row.debt) },
+      { key: 'is_active', label: 'Trạng thái', render: (row) => row.is_active ? 'Hoạt động' : 'Đang khóa' },
+      { key: 'actions', label: 'Chi tiết', render: (row) => <button className="table-action" onClick={() => setSelected(row)}>Xem chi tiết</button> },
+    ]} /><Pager offset={offset} setOffset={setOffset} length={rows.length} /></>}</Resource>
+    {selectedWallet && <ContentDialog title="CHI TIẾT VÍ VÀ ĐỐI SOÁT" className="admin-record-dialog" onClose={() => setSelected(null)}><WalletAdmin key={selectedWallet.id} api={api} user={user} wallet={selectedWallet} refresh={refresh} /></ContentDialog>}
   </section>
 }
 
@@ -42,7 +56,7 @@ function WalletAdmin({ api, user, wallet, refresh }) {
   const [report, setReport] = useState(null)
   const [offset, setOffset] = useState(0)
   const ledger = useResource(api, open ? `/admin/wallets/${wallet.id}/ledger?limit=20&offset=${offset}` : null)
-  return <article className="card card-body"><h3>{wallet.type === 'normal' ? 'Ví cá nhân' : 'Ví gia sư'} · {wallet.is_active ? 'Đang hoạt động' : 'Đang khóa'}</h3><Details row={wallet} fields={['id', 'user_id', 'available_balance', 'spendable_balance', 'reserved_withdrawals', 'holding_balance', 'debt', 'commission_rate', 'contract_id']} />
+  return <div><h3>{wallet.type === 'normal' ? 'Ví cá nhân' : 'Ví gia sư'} · {wallet.is_active ? 'Đang hoạt động' : 'Đang khóa'}</h3><Details row={wallet} fields={['id', 'user_id', 'available_balance', 'spendable_balance', 'reserved_withdrawals', 'holding_balance', 'debt', 'commission_rate', 'contract_id']} />
     <Action onClick={async () => setReport(await api.request(`/admin/wallets/${wallet.id}/reconciliation`))}>Đối soát ví</Action>
     {report && <div className={`notice ${report.status === 'ok' ? 'success' : 'error'}`}><strong>{report.status === 'ok' ? 'Các số liệu kiểm tra khớp.' : 'Phát hiện số liệu lệch.'}</strong><p>Số dư theo ledger: {report.expected_available_balance === null ? 'Chưa đủ dữ liệu' : money(report.expected_available_balance)} credit.</p>
       <ul>{report.issues.map((item, index) => <li key={index}>{issueLabels[item.code] ?? item.code}{item.transaction_id ? ` · ${item.transaction_id}` : ''}</li>)}</ul>
@@ -52,10 +66,18 @@ function WalletAdmin({ api, user, wallet, refresh }) {
     }} /></details>{wallet.type === 'commercial' && <details><summary>Cấu hình hợp đồng gia sư</summary><Form fields={[numberField('commission_rate', 'Phí nền tảng (%)', { max: 100 }), textField('contract_id', 'Mã hợp đồng', { optional: true, maxLength: 200 }), reasonField]} initial={wallet} onSubmit={async (values) => {
       await api.request(`/admin/wallets/${wallet.id}/contract`, { method: 'POST', body: values }); refresh()
     }} /></details>}</>}
-    <details onToggle={(event) => setOpen(event.currentTarget.open)}><summary>Sổ giao dịch của ví</summary><Resource resource={ledger}>{(rows) => <><div className="stack">{rows.map((row) => <div className="inset" key={`${row.category}-${row.id}`}><p>{row.category === 'internal' ? 'Nội bộ' : 'Nạp / rút'}</p><Details row={row} fields={['id', 'type', 'amount', 'direction', 'balance_before', 'balance_after', 'created_at']} />
-      {user.role === 'head_admin' && row.reversible && <details><summary>Lập bút toán bù sau đối soát</summary><p>Giao dịch gốc được giữ nguyên. Với nạp/rút, chỉ thực hiện sau khi đã xác minh điều chỉnh tiền ngoài hệ thống.</p><Form fields={[reasonField]} submit="Xác nhận bút toán bù" onSubmit={async (values, requestId) => {
+    <details onToggle={(event) => setOpen(event.currentTarget.open)}><summary>Sổ giao dịch của ví</summary><Resource resource={ledger}>{(rows) => <><DataTable label="Sổ giao dịch của ví" rows={rows} rowKey={(row) => `${row.category}-${row.id}`} columns={[
+      { key: 'created_at', label: 'Thời gian', render: (row) => date(row.created_at) },
+      { key: 'id', label: 'Mã giao dịch', render: (row) => <code className="table-reference">{row.id}</code> },
+      { key: 'category', label: 'Nhóm', render: (row) => row.category === 'internal' ? 'Nội bộ' : 'Nạp / rút' },
+      { key: 'type', label: 'Loại', render: (row) => labels[row.type] ?? row.type ?? '—' },
+      { key: 'amount', label: 'Số credit', render: (row) => money(row.amount) },
+      { key: 'direction', label: 'Chiều', render: (row) => labels[row.direction] ?? row.direction },
+      { key: 'balance_before', label: 'Số dư trước', render: (row) => money(row.balance_before) },
+      { key: 'balance_after', label: 'Số dư sau', render: (row) => money(row.balance_after) },
+      { key: 'actions', label: 'Thao tác', render: (row) => user.role === 'head_admin' && row.reversible ? <details><summary>Lập bút toán bù sau đối soát</summary><p>Chỉ thực hiện sau khi đã xác minh điều chỉnh tiền ngoài hệ thống.</p><Form fields={[reasonField]} submit="Xác nhận bút toán bù" onSubmit={async (values, requestId) => {
         await api.request(`/admin/${row.category}-transactions/${row.id}/reverse`, { method: 'POST', body: { ...values, request_id: requestId } }); ledger.reload(); refresh()
-      }} /></details>}
-    </div>)}</div><Pager offset={offset} setOffset={setOffset} length={rows.length} /></>}</Resource></details>
-  </article>
+      }} /></details> : '—' },
+    ]} /><Pager offset={offset} setOffset={setOffset} length={rows.length} /></>}</Resource></details>
+  </div>
 }

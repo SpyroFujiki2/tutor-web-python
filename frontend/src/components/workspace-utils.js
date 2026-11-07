@@ -16,7 +16,7 @@ export const date = (value) => value ? new Date(/(?:Z|[+-]\d\d:\d\d)$/.test(valu
 export const uuid = () => crypto.randomUUID()
 export const isAdmin = (user) => ['admin', 'head_admin'].includes(user?.role)
 
-export function useResource(api, path, version = 0, pollMs = 0) {
+export function useResource(api, path, version = 0, pollMs = 0, keepPrevious = false) {
   const [state, setState] = useState({})
   const [revision, setRevision] = useState(0)
   useEffect(() => {
@@ -37,8 +37,10 @@ export function useResource(api, path, version = 0, pollMs = 0) {
   }, [api, path, version, revision])
   const current = state.path === path && state.version === version && state.revision === revision
   const usable = current || (pollMs > 0 && state.path === path && state.version === version && !!state.data)
-  return { data: usable ? state.data : null, error: current ? state.error : null,
-    loading: !!path && (!usable || (!state.data && !state.error)), reload: () => setRevision((value) => value + 1) }
+  const retained = keepPrevious && !current && !!state.data
+  return { data: usable || retained ? state.data : null, error: current ? state.error : null,
+    loading: !!path && !retained && (!usable || (!state.data && !state.error)), refreshing: !!path && retained,
+    reload: () => setRevision((value) => value + 1) }
 }
 
 export const textField = (name, label, extra = {}) => ({ name, label, ...extra })

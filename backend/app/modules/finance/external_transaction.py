@@ -47,12 +47,15 @@ def record_manual_movement(session: Session, order: CashOrder, admin_id: UUID, l
     require(order.order_type in {CashOrderType.IN, CashOrderType.OUT}, 'Loại đơn không hợp lệ')
     from app.modules.finance.cash_order import cash_order_metadata
     require(cash_order_metadata(order).get('provider') in {None, 'manual'}, 'Không xử lý đơn nhà cung cấp qua luồng thủ công')
-    wallet = lock_wallets(session, order.wallet_id)[order.wallet_id]
+    incoming = order.order_type == CashOrderType.IN
+    # An already-received deposit can settle into a frozen wallet; payouts
+    # still require an active wallet and the freeze remains in effect.
+    wallet = lock_wallets(session, order.wallet_id, require_active=not incoming)[order.wallet_id]
     require(wallet.user_id == order.user_id, 'Ví không thuộc chủ đơn')
     amount, before = money(order.credit_amount), money(wallet.available_balance)
     require(amount > 0 and money(order.amount_vnd) > 0, 'Đơn không có số tiền hợp lệ')
-    incoming = order.order_type == CashOrderType.IN
     if not incoming:
+        require(wallet.type == WalletType.COMMERCIAL, 'Chỉ ví gia sư được rút tiền')
         require(wallet.debt == 0, 'Ví có công nợ, không thể xác nhận rút')
         pending = reserved_withdrawals(session, wallet)
         require(before >= pending, 'Số dư không đủ cho các đơn rút đã giữ tiền')

@@ -11,6 +11,7 @@ import Icon from './Icon.jsx'
 import SiteLink from './SiteLink.jsx'
 import PageHeading from './PageHeading.jsx'
 import { formatDuration } from '../services/watch-time.js'
+import { learningProgress } from '../services/learning-progress.js'
 
 const formatOptions = [['all', 'Mọi hình thức'], ['video', 'Học qua video'], ['live', 'Lớp trực tiếp']]
 const priceOptions = [['all', 'Mọi mức giá'], ['free', 'Miễn phí'], ['paid', 'Có học phí']]
@@ -79,23 +80,35 @@ function CourseRoom({ api, subscription, onBack }) {
   const [latestProgress, setLatestProgress] = useState(null)
   const [selectedLesson, setSelectedLesson] = useState(null)
   const lessons = useResource(api, `/subscriptions/${subscription.id}/lessons`)
-  const progress = useResource(api, `/subscriptions/${subscription.id}/progress`)
+  const progress = useResource(api, `/subscriptions/${subscription.id}/progress`, 0, 15000)
   const course = useResource(api, `/subscriptions/${subscription.id}/course`)
   const attendance = useResource(api, `/subscriptions/${subscription.id}/attendance`)
+  const saved = !latestProgress || (progress.data?.updated_at ?? '') > (latestProgress.updated_at ?? '') ? progress.data : latestProgress
+  const isLive = course.data?.is_live ?? saved?.is_live
+  const view = learningProgress(lessons.data ?? [], saved?.lesson_progress ?? [], attendance.data ?? [], latestWatched, isLive)
+  const progressView = saved ? { data: { ...saved, progress_percent: lessons.data ? view.progress_percent : saved.progress_percent } } : progress
+  function watch(lessonId, count, duration) {
+    setLatestWatched((previous) => {
+      const seconds = duration || previous[lessonId]?.duration_seconds || null
+      if (previous[lessonId]?.duration_watched === count && previous[lessonId]?.duration_seconds === seconds) return previous
+      return { ...previous, [lessonId]: { duration_watched: count, duration_seconds: seconds } }
+    })
+  }
   return <section><button onClick={onBack}>← Các đăng ký</button><h1>{subscription.title_at_purchase}</h1>
-    <Resource resource={latestProgress ? { data: latestProgress } : progress}>{(row) => <div className="card card-body"><div className="row"><h2>Tiến độ học tập</h2><strong>{row.progress_percent}%</strong></div>
+    <Resource resource={progressView}>{(row) => <div className="card card-body"><div className="row"><h2>Tiến độ học tập</h2><strong>{row.progress_percent}%</strong></div>
       <progress max="100" value={Number(row.progress_percent)} aria-label="Tiến độ khóa học" /><Details row={row} fields={['result', 'final_score', 'completed_at']} />
-      <p className="muted">Hoàn thành các bài học và chờ quản trị chấm điểm để nhận kết quả cuối cùng.</p></div>}</Resource>
+      <p className="muted">{isLive ? 'Bài học trực tiếp được ghi nhận theo điểm danh. Bài có bài tập cần được xác nhận hoàn thành.' : lessons.data?.some((lesson) => lesson.assignment_url?.trim()) ? 'Bài không có bài tập tự tính tiến độ theo thời lượng xem. Bài có bài tập được ghi nhận sau khi xác nhận hoàn thành.' : 'Tiến độ tự cập nhật theo thời lượng đã xem của từng bài học.'}</p></div>}</Resource>
     <Resource resource={lessons} empty="Khóa học chưa có bài học.">{(rows) => {
       const active = rows.find((lesson) => lesson.id === selectedLesson) ?? rows[0]
+      const activeProgress = view.rows.find((row) => row.lesson_id === active.id)
       return <div className="course-room-layout"><nav className="lesson-list" aria-label="Danh sách bài học">{rows.map((lesson) => {
-        const record = latestWatched[lesson.id] ?? attendance.data?.find((row) => row.lesson_id === lesson.id)
-        return <button key={lesson.id} aria-current={active.id === lesson.id ? 'true' : undefined} onClick={() => setSelectedLesson(lesson.id)}><strong>Bài {lesson.order_idx}</strong><small>{lesson.duration_seconds ? formatDuration(lesson.duration_seconds) : lesson.duration_minutes ? `${lesson.duration_minutes} phút` : 'Video bài học'}</small>{record && <small>Đã học {formatDuration(record.duration_watched)}{!record.is_absent ? ' · Hoàn thành' : ''}</small>}</button>
+        const row = view.rows.find((part) => part.lesson_id === lesson.id)
+        return <button key={lesson.id} aria-current={active.id === lesson.id ? 'true' : undefined} onClick={() => setSelectedLesson(lesson.id)}><strong>Bài {lesson.order_idx}</strong><small>{row?.duration_seconds ? formatDuration(row.duration_seconds) : 'Video bài học'}</small><small>{row?.is_completed ? 'Hoàn thành' : `${row?.progress_percent ?? 0}%`}{row?.has_assignment ? ' · Có bài tập' : ''}</small><progress max="100" value={row?.progress_percent ?? 0} aria-label={`Tiến độ bài ${lesson.order_idx}`} /></button>
       })}</nav><article className="card card-body lesson-stage"><h2>Bài {active.order_idx}</h2>
-        {active.media_url ? !attendance.loading && !course.loading && <LessonMedia key={active.id} url={active.media_url} title={`Bài ${active.order_idx}`} api={api} subscriptionId={subscription.id} lessonId={active.id} initialWatched={(latestWatched[active.id] ?? attendance.data?.find((row) => row.lesson_id === active.id))?.duration_watched ?? 0} track={course.data?.is_live === false && !attendance.error} onSaved={setLatestProgress} onWatch={(count, complete) => setLatestWatched((previous) => ({ ...previous, [active.id]: { duration_watched: count, is_absent: !(complete || previous[active.id]?.is_absent === false || attendance.data?.some((row) => row.lesson_id === active.id && !row.is_absent)) } }))} /> : <p className="muted">Bài học chưa có video.</p>}
+        {active.media_url ? !attendance.loading && !course.loading && <LessonMedia key={active.id} url={active.media_url} title={`Bài ${active.order_idx}`} api={api} subscriptionId={subscription.id} lessonId={active.id} initialWatched={activeProgress?.duration_watched ?? 0} track={course.data?.is_live === false && !attendance.error} onSaved={setLatestProgress} onWatch={(count, _complete, duration) => watch(active.id, count, duration)} /> : <p className="muted">Bài học chưa có video.</p>}
         {attendance.error && <p role="alert">Chưa tải được tiến độ bài học. <button onClick={attendance.reload}>Thử lại</button></p>}
         {course.error && <p role="alert">Chưa tải được khóa học. <button onClick={course.reload}>Thử lại</button></p>}
-        {active.assignment_url && <ExternalContent url={active.assignment_url} title="Bài tập" />}
+        {active.assignment_url && <><p className="muted">{activeProgress?.assignment_completed ? 'Bài tập đã được xác nhận hoàn thành.' : 'Bài học này có bài tập. Xem video không tự hoàn thành bài học.'}</p><ExternalContent url={active.assignment_url} title="Bài tập" /></>}
       </article></div>
     }}</Resource>
   </section>

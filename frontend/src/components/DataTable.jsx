@@ -1,0 +1,3 @@
+export default function DataTable({ label, columns, rows, rowKey = (row) => row.id ?? row.subscription_id }) {
+  return <div className="data-table-scroll" role="region" aria-label={label} tabIndex={0}><table className="data-table"><caption className="sr-only">{label}</caption><thead><tr>{columns.map((column) => <th scope="col" key={column.key}>{column.label}</th>)}</tr></thead><tbody>{rows.length ? rows.map((row) => <tr key={rowKey(row)}>{columns.map((column) => <td key={column.key}>{column.render ? column.render(row) : row[column.key] ?? '—'}</td>)}</tr>) : <tr><td colSpan={columns.length} className="table-empty">Không có dữ liệu phù hợp.</td></tr>}</tbody></table></div>
+}

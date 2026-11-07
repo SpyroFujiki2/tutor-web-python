@@ -69,7 +69,9 @@ def apply_payment_confirmation(session, params, settings, *, source):
               old_value={'status': order.status}, new_value={'status': target, 'provider': 'vnpay', 'transaction_no': transaction_no},
               reason='Verified VNPAY server ' + ('notification' if source == 'ipn' else 'transaction query'), created_at=now())
     if success:
-        wallet = lock_wallets(session, order.wallet_id)[order.wallet_id]
+        # Honor a verified payment for an existing order even if the wallet was
+        # frozen during checkout. Crediting never unlocks spending or payouts.
+        wallet = lock_wallets(session, order.wallet_id, require_active=False)[order.wallet_id]
         require(wallet.user_id == order.user_id, 'Wallet owner does not match order')
         before, credit = money(wallet.available_balance), money(order.credit_amount)
         after = money(before + credit)
