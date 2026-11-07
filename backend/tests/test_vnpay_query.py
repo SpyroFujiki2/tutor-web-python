@@ -3,8 +3,11 @@ import json
 import secrets
 import unittest
 from hashlib import sha512
+from http.client import IncompleteRead
+from socket import gaierror
+from ssl import SSLCertVerificationError
 from unittest.mock import MagicMock, patch
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 from uuid import UUID, uuid4
 
 from sqlalchemy import event, func, select
@@ -12,7 +15,7 @@ from sqlalchemy import event, func, select
 from app.core.vnpay import VNPAYSettings
 from app.core.vnpay_query import (
     RESPONSE_FIELDS, VNPAYQueryError, build_query, query_signature,
-    query_transaction, verify_query_response,
+    query_server_ip, query_transaction, verify_query_response,
 )
 from app.models import ActionLog, CashOrder, ExternalTransaction
 from test_vnpay import VNPAYFixture
@@ -61,6 +64,36 @@ class QueryProtocolTests(unittest.TestCase):
         with self.assertRaises(VNPAYQueryError):
             verify_query_response(response, self.settings, self.metadata['txn_ref'], 20000, '99999')
 
+    def test_optional_response_command_still_requires_original_signature_and_payment_type(self):
+        for command in ('absent', '', None):
+            response = self.response(vnp_Command=command)
+            if command == 'absent':
+                del response['vnp_Command']
+            response['vnp_SecureHash'] = query_signature(response, RESPONSE_FIELDS, self.settings.hash_secret)
+            with self.subTest(command=command):
+                self.assertEqual(verify_query_response(response, self.settings, self.metadata['txn_ref'], 20000)[
+                    'vnp_TransactionStatus'], '00')
+        tampered = self.response()
+        del tampered['vnp_Command']
+        with self.assertRaises(VNPAYQueryError):
+            verify_query_response(tampered, self.settings, self.metadata['txn_ref'], 20000)
+        with self.assertRaises(VNPAYQueryError):
+            verify_query_response(self.response(vnp_Command='refund'), self.settings, self.metadata['txn_ref'], 20000)
+
+    def test_query_ip_uses_server_configuration_or_listener_and_rejects_bad_configuration(self):
+        with patch('app.core.vnpay_query.runtime_values', return_value={}):
+            self.assertEqual(query_server_ip('10.0.0.7'), '10.0.0.7')
+            self.assertEqual(query_server_ip(None), '127.0.0.1')
+            self.assertEqual(query_server_ip('testserver'), '127.0.0.1')
+            self.assertEqual(query_server_ip('0.0.0.0'), '127.0.0.1')
+        with patch('app.core.vnpay_query.runtime_values', return_value={'VNPAY_QUERY_IP':'192.0.2.7'}):
+            self.assertEqual(query_server_ip('10.0.0.7'), '192.0.2.7')
+        for candidate in ('https://bad.example', '0.0.0.0', 'ff02::1', 'fe80::1%eth0'):
+            with self.subTest(candidate=candidate), patch('app.core.vnpay_query.runtime_values', return_value={'VNPAY_QUERY_IP':candidate}):
+                with self.assertRaises(VNPAYQueryError) as caught:
+                    query_server_ip('10.0.0.7')
+                self.assertEqual(caught.exception.code, 'invalid_server_ip')
+
     def test_transport_posts_only_to_provider_and_sanitizes_failures(self):
         response = MagicMock(status=200)
         response.read.return_value = json.dumps(self.response()).encode()
@@ -78,7 +111,37 @@ class QueryProtocolTests(unittest.TestCase):
         with patch('app.core.vnpay_query.build_opener', return_value=opener), self.assertRaises(VNPAYQueryError) as caught:
             query_transaction(self.settings, self.metadata, 20000, '127.0.0.1')
         self.assertNotIn(self.settings.hash_secret, str(caught.exception))
-        self.assertEqual(caught.exception.code, 'unavailable')
+        self.assertEqual(caught.exception.code, 'network_error')
+
+    def test_transport_errors_are_distinct_and_never_expose_provider_body_or_secret(self):
+        cases = [
+            (HTTPError('https://sandbox.vnpayment.vn', 403, self.settings.hash_secret, {}, None), 'http_403'),
+            (URLError(TimeoutError(self.settings.hash_secret)), 'timeout'),
+            (TimeoutError(self.settings.hash_secret), 'timeout'),
+            (URLError(SSLCertVerificationError(1, self.settings.hash_secret)), 'tls_error'),
+            (URLError(gaierror(-2, self.settings.hash_secret)), 'dns_error'),
+            (URLError(self.settings.hash_secret), 'network_error'),
+            (IncompleteRead(self.settings.hash_secret.encode(), 200), 'http_protocol_error'),
+        ]
+        for failure, expected in cases:
+            opener = MagicMock()
+            opener.open.side_effect = failure
+            with self.subTest(expected=expected), patch('app.core.vnpay_query.build_opener', return_value=opener):
+                with self.assertRaises(VNPAYQueryError) as caught:
+                    query_transaction(self.settings, self.metadata, 20000, '127.0.0.1')
+                self.assertEqual(caught.exception.code, expected)
+                self.assertIsNotNone(caught.exception.request_id)
+                self.assertNotIn(self.settings.hash_secret, str(caught.exception))
+
+    def test_invalid_json_is_not_misreported_as_a_network_error(self):
+        response = MagicMock(status=200)
+        response.read.return_value = b'<html>Gateway response</html>'
+        opener = MagicMock()
+        opener.open.return_value.__enter__.return_value = response
+        with patch('app.core.vnpay_query.build_opener', return_value=opener):
+            with self.assertRaises(VNPAYQueryError) as caught:
+                query_transaction(self.settings, self.metadata, 20000, '127.0.0.1')
+        self.assertEqual(caught.exception.code, 'invalid_json')
 
     def test_unsigned_99_duplicate_keys_and_oversized_responses_are_never_confirmations(self):
         for raw in (b'{"vnp_ResponseCode":"99","vnp_Message":"Unexpected error"}',
@@ -121,6 +184,32 @@ class PaymentVerificationTests(VNPAYFixture):
             self.assertEqual(session.scalar(select(func.count()).select_from(ExternalTransaction)), 1)
             log = session.scalar(select(ActionLog).where(ActionLog.action_code == 'vnpay.querydr'))
             self.assertIsNotNone(log)
+
+    def test_signed_query_without_optional_command_credits_once_using_server_ip(self):
+        order = self.checkout()
+        response = self.query_response(order)
+        del response['vnp_Command']
+        response['vnp_SecureHash'] = query_signature(response, RESPONSE_FIELDS, self.settings.hash_secret)
+        with patch('app.core.vnpay_query.runtime_values', return_value={}), patch(
+            'app.api.routes.vnpay.query_transaction', return_value=response,
+        ) as query:
+            self.assertTrue(self.verify(order)['credited'])
+            self.assertTrue(self.verify(order)['credited'])
+        self.assertEqual(query.call_count, 1)
+        self.assertEqual(query.call_args.args[3], '127.0.0.1')
+        self.assertEqual(self.balance(), 1200)
+        self.assertEqual(self.ipn(self.callback(order))['RspCode'], '02')
+
+    def test_invalid_query_server_ip_leaves_payment_pending_without_calling_provider(self):
+        order = self.checkout()
+        with patch('app.core.vnpay_query.runtime_values', return_value={'VNPAY_QUERY_IP':'bad.example'}), patch(
+            'app.api.routes.vnpay.query_transaction',
+        ) as query:
+            result = self.verify(order)
+        query.assert_not_called()
+        self.assertEqual(result['order_status'], 'pending')
+        self.assertFalse(result['credited'])
+        self.assertEqual(self.balance(), 1000)
 
     def test_provider_failure_keeps_order_pending_and_throttles_retries_across_requests(self):
         order = self.checkout()

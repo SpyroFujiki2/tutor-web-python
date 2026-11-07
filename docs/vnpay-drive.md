@@ -133,6 +133,18 @@ QueryDR và đối chiếu lại phản hồi với đơn. Network timeout, ph�
 JSON không hợp lệ, chữ ký sai hoặc dữ liệu không khớp đều giữ đơn pending.
 Đơn cũ thuộc merchant khác không được truy vấn bằng khóa của merchant mới.
 
+`vnp_IpAddr` của QueryDR lấy từ cấu hình `VNPAY_QUERY_IP` nếu có, hoặc địa chỉ
+server trong ASGI; trường hợp server không có địa chỉ IP hợp lệ dùng loopback
+`127.0.0.1`. Không dùng IP khách hàng hoặc header forwarded cho truy vấn này.
+Địa chỉ listener có thể là IP nội bộ/loopback và không xác định được IP public
+sau NAT. Nếu VNPAY yêu cầu IP public của server, cần đặt `VNPAY_QUERY_IP` theo
+cấu hình mạng đã xác nhận của môi trường chạy; không đoán từ IP người dùng.
+Cấu hình IP QueryDR sai chỉ làm bước kiểm tra đơn thất bại, không tắt IPN.
+
+Theo đặc tả, `vnp_Command` trong phản hồi QueryDR là tùy chọn. Backend xác minh
+HMAC trên dữ liệu gốc, chấp nhận thiếu/rỗng trường này; nếu có giá trị phải là
+`querydr`. Không tự chèn giá trị mặc định vào dữ liệu trước khi kiểm chữ ký.
+
 Mỗi đơn chỉ được truy vấn lại sau 5 phút, được bảo vệ bằng metadata
 trong DB để nhiều tab/worker không gọi dồn API. Reservation được commit và
 nhả connection/khóa trước khi gọi VNPAY; sau phản hồi, backend khóa và đọc lại
@@ -142,10 +154,16 @@ lúc truy vấn hoặc đến muộn không cộng trùng. Audit phân biệt `v
 
 Trong Vercel Runtime Logs, lọc `VNPAY IPN` / `VNPAY QueryDR` để thấy mã phản
 hồi, mã đơn và loại lỗi. Không log HashSecret, chữ ký hoặc toàn bộ query string.
+Lỗi QueryDR được phân loại `http_<status>`, `timeout`, `tls_error`, `dns_error`,
+`network_error`, `http_protocol_error`, `invalid_json`, `response_too_large`
+hoặc lỗi kiểm chữ ký/dữ liệu. Mã nhà cung cấp `99` được giữ nguyên và chưa đủ
+để xác định nguyên nhân hoặc kết luận giao dịch thanh toán thất bại.
 HTTP 200 của IPN không đủ để kết luận đã cộng ví: cần kiểm tra JSON RspCode
 và audit/ledger. Nếu không có request IPN từ VNPAY, kiểm tra đăng ký URL theo
 đúng TmnCode và kiểm tra Deployment Protection/Firewall; ứng dụng không thể
 tự nhận một webhook chưa được VNPAY gửi tới.
+Việc chưa thấy IPN trong log cũng chưa đủ chứng minh URL chưa đăng ký; cần
+đối chiếu cấu hình riêng của đúng merchant và lịch sử gửi callback phía VNPAY.
 
 ## Google Drive
 

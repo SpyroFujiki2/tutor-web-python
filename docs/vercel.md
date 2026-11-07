@@ -50,6 +50,7 @@ are not deployment configuration and are excluded by `.vercelignore`.
 | `VNPAY_TMN_CODE`, `VNPAY_HASH_SECRET` | Optional sandbox merchant credentials |
 | `VNPAY_PAYMENT_URL` | `https://sandbox.vnpayment.vn/paymentv2/vpcpay.html` |
 | `VNPAY_RETURN_URL` | `https://YOUR-DOMAIN/payment/vnpay-return` |
+| `VNPAY_QUERY_IP` | Optional known server IP for QueryDR; blank uses the ASGI listener address, not the customer's IP or public NAT discovery |
 | `VITE_API_BASE_URL` | Leave unset or empty; requests must remain on the same origin |
 | `CORS_ORIGINS` | Optional explicit origins if a separate client calls the API |
 

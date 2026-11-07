@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from app.api.dependencies.auth import get_current_user
 from app.api.dependencies.database import get_session
 from app.core.vnpay import VNPAYSettings, get_vnpay_settings, verified_query
-from app.core.vnpay_query import VNPAYQueryError, query_transaction
+from app.core.vnpay_query import VNPAYQueryError, query_server_ip, query_transaction
 from app.models import CashOrder, User
 from app.models.enums import CashOrderStatus
 from app.modules.finance.vnpay import apply_ipn, checkout, finish_verification, reserve_verification
@@ -111,8 +111,10 @@ def verify_payment(order_id: UUID, payload: VerificationInput, request: Request,
         return completed
     result, error = None, None
     try:
+        server = request.scope.get('server')
+        ip = query_server_ip(server[0] if server else None)
         result = query_transaction(settings, reservation['metadata'], reservation['amount_vnd'],
-                                   request.client.host if request.client else '127.0.0.1', payload.transaction_no)
+                                   ip, payload.transaction_no)
     except VNPAYQueryError as failure:
         error = failure
         logger.warning('VNPAY QueryDR unavailable order=%s code=%s request_id=%s',
