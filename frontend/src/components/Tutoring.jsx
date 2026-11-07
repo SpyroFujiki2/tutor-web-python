@@ -1,3 +1,4 @@
+import ExternalContent from './ExternalContent.jsx'
 import { useState } from 'react'
 import { Action, Badge, Details, Form, Pager, Resource } from './Workspace.jsx'
 import { date, isAdmin, money, sessionFields, sessionPayload, textField, useResource } from './workspace-utils.js'
@@ -56,7 +57,7 @@ export function BookingRoom({ api, user, id, onBack }) {
       </div>
       <h2>Lịch học</h2><Resource resource={sessions}>{(items) => <div className="stack">{items.map((item) => <article className="card card-body" key={item.id}>
         <div className="row"><h3>Buổi {item.session_no}</h3><Badge value={item.status} /></div><Details row={item} fields={['starts_at', 'ends_at']} />
-        {item.meeting_url && <a className="button" href={item.meeting_url} target="_blank" rel="noreferrer">Vào phòng học ↗</a>}<p>{item.location}</p><p>{item.note}</p>
+        {item.meeting_url && <ExternalContent url={item.meeting_url} title="Vào phòng học" meeting />}<p>{item.location}</p><p>{item.note}</p>
         {(row.tutor_id === user.id || isAdmin(user)) && row.status === 'assigned' && item.status === 'scheduled' && <div className="actions">
           <button onClick={() => setEditing(item.id)}>Xếp lại lịch</button>
           <Action onClick={async () => { await api.request(`/bookings/${id}/sessions/${item.id}/action`, { method: 'POST', body: { action: 'complete' } }); refresh() }}>Hoàn tất buổi</Action>

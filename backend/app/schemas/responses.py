@@ -20,7 +20,7 @@ def response(name, model, fields):
 
 
 CourseResponse = response("CourseResponse", models.Course, "id title description price is_live status created_at updated_at")
-LessonResponse = response("LessonResponse", models.Lesson, "id course_id order_idx media_url assignment_url session_count duration_minutes")
+LessonResponse = response("LessonResponse", models.Lesson, "id course_id order_idx media_url assignment_url session_count duration_minutes duration_seconds")
 PackageResponse = response("PackageResponse", models.TutoringPackage, "id name price is_active")
 CreditPackageResponse = response("CreditPackageResponse", models.CreditPackage, "id name credits price is_active")
 SubscriptionResponse = response("SubscriptionResponse", models.UserSubscription,

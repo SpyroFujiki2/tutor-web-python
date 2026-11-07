@@ -76,13 +76,14 @@ export function createApiClient(baseUrl, {
     if (storage && JSON.stringify(readSession(storage, storageKey)) !== saved) storage = null
   }
 
-  async function send(path, { method = 'GET', body, rawBody, contentType, responseType, signal, accessToken } = {}) {
+  async function send(path, { method = 'GET', body, rawBody, contentType, responseType, signal, accessToken, keepalive = false } = {}) {
     const timeout = AbortSignal.timeout(10_000)
     const requestSignal = signal ? AbortSignal.any([signal, timeout]) : timeout
     let response
     try {
       response = await fetch(`${baseUrl}/api${path}`, {
         method,
+        keepalive,
         signal: requestSignal,
         headers: {
           Accept: 'application/json',

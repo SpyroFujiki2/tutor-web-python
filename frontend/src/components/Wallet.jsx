@@ -52,9 +52,8 @@ export default function Wallet({ api, user }) {
         else await api.request('/me/deposits', { method: 'POST', body })
         setReviewPackage(null); refresh()
       }} />
-      {!vnpay.data?.enabled && <p className="muted">VNPAY sandbox chưa được cấu hình.</p>}
       <button onClick={() => setReviewPackage(null)}>Đóng</button></div>}
-    {paymentLink && <div className="notice success"><p>Đơn nạp đã tạo. Link có thời hạn; bạn sẽ thanh toán ở một tab riêng.</p><a className="button primary" href={paymentLink.payment_url} target="_blank" rel="noreferrer">Mở VNPAY →</a><button onClick={() => setPaymentLink(null)}>Đóng</button></div>}
+    {paymentLink && <div className="notice success"><p>Đơn nạp đã tạo. Tiếp tục đến VNPAY để thanh toán trước khi liên kết hết hạn.</p><a className="button primary" href={paymentLink.payment_url}>Thanh toán qua VNPAY →</a><button onClick={() => setPaymentLink(null)}>Đóng</button></div>}
     <div className="split"><section className="card card-body"><h2>Tài khoản nhận tiền</h2><Resource resource={banks} empty="Chưa thêm tài khoản ngân hàng.">{(rows) => <ul className="plain-list">{rows.map((bank) => <li key={bank.id}>
       <strong>{bank.bank_name} · {bank.account_number_masked}</strong><p>{bank.account_holder_name}</p><Action onClick={async () => { await api.request(`/me/payment-methods/${bank.id}`, { method: 'DELETE' }); refresh() }}>Xóa tài khoản</Action>
       <details><summary>Sửa thông tin ngân hàng</summary><Form fields={bankFields} initial={{ bank_name: bank.bank_name, account_holder_name: bank.account_holder_name }} onSubmit={async (values) => {

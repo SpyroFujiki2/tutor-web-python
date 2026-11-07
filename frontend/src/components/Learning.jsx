@@ -1,6 +1,7 @@
 import { useState } from 'react'
+import ExternalContent from './ExternalContent.jsx'
 import LessonMedia from './LessonMedia.jsx'
-import { Action, Badge, Details, Form, Pager, Resource } from './Workspace.jsx'
+import { Badge, Details, Form, Pager, Resource } from './Workspace.jsx'
 import { money, useResource } from './workspace-utils.js'
 import { useCollection } from './use-collection.js'
 import { filterCollection } from './collection-utils.js'
@@ -9,6 +10,7 @@ import ContentDialog from './ContentDialog.jsx'
 import Icon from './Icon.jsx'
 import SiteLink from './SiteLink.jsx'
 import PageHeading from './PageHeading.jsx'
+import { formatDuration } from '../services/watch-time.js'
 
 const formatOptions = [['all', 'Mọi hình thức'], ['video', 'Học qua video'], ['live', 'Lớp trực tiếp']]
 const priceOptions = [['all', 'Mọi mức giá'], ['free', 'Miễn phí'], ['paid', 'Có học phí']]
@@ -73,24 +75,28 @@ export function MyLearning({ api }) {
 }
 
 function CourseRoom({ api, subscription, onBack }) {
-  const [version, setVersion] = useState(0)
+  const [latestWatched, setLatestWatched] = useState({})
+  const [latestProgress, setLatestProgress] = useState(null)
+  const [selectedLesson, setSelectedLesson] = useState(null)
   const lessons = useResource(api, `/subscriptions/${subscription.id}/lessons`)
-  const progress = useResource(api, `/subscriptions/${subscription.id}/progress`, version)
+  const progress = useResource(api, `/subscriptions/${subscription.id}/progress`)
   const course = useResource(api, `/subscriptions/${subscription.id}/course`)
-  const attendance = useResource(api, `/subscriptions/${subscription.id}/attendance`, version)
-  const refresh = () => setVersion((value) => value + 1)
+  const attendance = useResource(api, `/subscriptions/${subscription.id}/attendance`)
   return <section><button onClick={onBack}>← Các đăng ký</button><h1>{subscription.title_at_purchase}</h1>
-    <Resource resource={progress}>{(row) => <div className="card card-body"><div className="row"><h2>Tiến độ học tập</h2><strong>{row.progress_percent}%</strong></div>
+    <Resource resource={latestProgress ? { data: latestProgress } : progress}>{(row) => <div className="card card-body"><div className="row"><h2>Tiến độ học tập</h2><strong>{row.progress_percent}%</strong></div>
       <progress max="100" value={Number(row.progress_percent)} aria-label="Tiến độ khóa học" /><Details row={row} fields={['result', 'final_score', 'completed_at']} />
       <p className="muted">Hoàn thành các bài học và chờ quản trị chấm điểm để nhận kết quả cuối cùng.</p></div>}</Resource>
-    <Resource resource={lessons} empty="Khóa học chưa có bài học.">{(rows) => <div className="stack">{rows.map((lesson) => <article className="card card-body" key={lesson.id}>
-      <h2>Bài {lesson.order_idx}</h2><p>{lesson.duration_minutes ? `${lesson.duration_minutes} phút` : 'Buổi học trực tiếp'}</p>
-      {lesson.media_url && <LessonMedia url={lesson.media_url} title={`Bài ${lesson.order_idx}`} />}
-      {lesson.assignment_url && <a className="button" href={lesson.assignment_url} target="_blank" rel="noreferrer">Bài tập ↗</a>}
-      {lesson.media_url && course.data?.is_live === false && <Action onClick={async () => {
-        await api.request(`/subscriptions/${subscription.id}/lessons/${lesson.id}/watch`, { method: 'POST', body: { duration_watched: (lesson.duration_minutes ?? 0) * 60, completed: true } }); refresh()
-      }}>Ghi nhận đã xem hết bài</Action>}
-      {attendance.data?.some((row) => row.lesson_id === lesson.id && !row.is_absent) && <p className="success">Đã ghi nhận việc học.</p>}
-    </article>)}</div>}</Resource>
+    <Resource resource={lessons} empty="Khóa học chưa có bài học.">{(rows) => {
+      const active = rows.find((lesson) => lesson.id === selectedLesson) ?? rows[0]
+      return <div className="course-room-layout"><nav className="lesson-list" aria-label="Danh sách bài học">{rows.map((lesson) => {
+        const record = latestWatched[lesson.id] ?? attendance.data?.find((row) => row.lesson_id === lesson.id)
+        return <button key={lesson.id} aria-current={active.id === lesson.id ? 'true' : undefined} onClick={() => setSelectedLesson(lesson.id)}><strong>Bài {lesson.order_idx}</strong><small>{lesson.duration_seconds ? formatDuration(lesson.duration_seconds) : lesson.duration_minutes ? `${lesson.duration_minutes} phút` : 'Video bài học'}</small>{record && <small>Đã học {formatDuration(record.duration_watched)}{!record.is_absent ? ' · Hoàn thành' : ''}</small>}</button>
+      })}</nav><article className="card card-body lesson-stage"><h2>Bài {active.order_idx}</h2>
+        {active.media_url ? !attendance.loading && !course.loading && <LessonMedia key={active.id} url={active.media_url} title={`Bài ${active.order_idx}`} api={api} subscriptionId={subscription.id} lessonId={active.id} initialWatched={(latestWatched[active.id] ?? attendance.data?.find((row) => row.lesson_id === active.id))?.duration_watched ?? 0} track={course.data?.is_live === false && !attendance.error} onSaved={setLatestProgress} onWatch={(count, complete) => setLatestWatched((previous) => ({ ...previous, [active.id]: { duration_watched: count, is_absent: !(complete || previous[active.id]?.is_absent === false || attendance.data?.some((row) => row.lesson_id === active.id && !row.is_absent)) } }))} /> : <p className="muted">Bài học chưa có video.</p>}
+        {attendance.error && <p role="alert">Chưa tải được tiến độ bài học. <button onClick={attendance.reload}>Thử lại</button></p>}
+        {course.error && <p role="alert">Chưa tải được khóa học. <button onClick={course.reload}>Thử lại</button></p>}
+        {active.assignment_url && <ExternalContent url={active.assignment_url} title="Bài tập" />}
+      </article></div>
+    }}</Resource>
   </section>
 }

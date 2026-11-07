@@ -1,3 +1,4 @@
+import ExternalContent from './ExternalContent.jsx'
 import { useState } from 'react'
 import { Action, Badge, Details, Form, Pager, Resource } from './Workspace.jsx'
 import { numberField, reasonField, sessionFields, sessionPayload, textField, useResource } from './workspace-utils.js'
@@ -5,7 +6,6 @@ import { Chat } from './Tutoring.jsx'
 import FinanceAdmin from './FinanceAdmin.jsx'
 import { adminGroups, adminSections, resolveAdminSection } from '../admin-navigation.js'
 import { useLocation } from '../navigation.js'
-import { AdminNavigation } from './SiteLayout.jsx'
 import Icon from './Icon.jsx'
 import { labels } from './workspace-utils.js'
 
@@ -21,7 +21,7 @@ export default function Admin({ api, user }) {
   const location = useLocation()
   const current = resolveAdminSection(location)
   const group = adminGroups.find((group) => group.items.some((item) => item.id === current.id))
-  return <section className="admin-page"><div className="admin-welcome"><div><p className="eyebrow"><span className="online-dot" />KHÔNG GIAN VẬN HÀNH</p><h1>Quản trị, gọn trong tầm tay.</h1><p>Quản lý hoạt động đào tạo, thành viên và tài chính trong một không gian.</p></div><div className="admin-identity"><span className="admin-identity-icon"><Icon name="shield" size={27} /></span><div><strong>{labels[user.role]}</strong><small>{user.email}</small></div></div></div><AdminNavigation key={current.id} selected={current.id} /><div className="admin-breadcrumb"><span>Quản trị</span><Icon name="arrow" size={12} /><span>{group.label}</span><Icon name="arrow" size={12} /><strong>{current.label}</strong></div>{current.id === 'finance' ? <FinanceAdmin api={api} user={user} /> : <AdminList key={current.id} api={api} user={user} section={current.id} />}</section>
+  return <section className="admin-page"><div className="admin-welcome"><div><p className="eyebrow"><span className="online-dot" />KHÔNG GIAN VẬN HÀNH</p><h1>Quản trị, gọn trong tầm tay.</h1><p>Quản lý hoạt động đào tạo, thành viên và tài chính trong một không gian.</p></div><div className="admin-identity"><span className="admin-identity-icon"><Icon name="shield" size={27} /></span><div><strong>{labels[user.role]}</strong><small>{user.email}</small></div></div></div><div className="admin-breadcrumb"><span>Quản trị</span><Icon name="arrow" size={12} /><span>{group.label}</span><Icon name="arrow" size={12} /><strong>{current.label}</strong></div>{current.id === 'finance' ? <FinanceAdmin api={api} user={user} /> : <AdminList key={current.id} api={api} user={user} section={current.id} />}</section>
 }
 
 function AdminList({ api, user, section }) {
@@ -42,7 +42,7 @@ function AdminList({ api, user, section }) {
     <Resource resource={resource}>{(rows) => <><div className="stack admin-records">{rows.map((row) => <article className="card card-body admin-record" key={row.id ?? row.subscription_id}>
       <div className="row"><h2>{row.title ?? row.name ?? row.subject ?? row.reason_category ?? row.email ?? current.label}</h2>{row.status && <Badge value={row.status} />}</div><Details row={row} fields={rowFields.filter((key) => key !== 'id' && !key.endsWith('_id'))} />
       {rowFields.some((key) => (key === 'id' || key.endsWith('_id')) && row[key]) && <details className="reference-details"><summary>Mã tham chiếu</summary><Details row={row} fields={rowFields.filter((key) => key === 'id' || key.endsWith('_id'))} /></details>}
-      {row.content && <p className="preserve">{row.content}</p>}{row.answer_url && <a href={row.answer_url} target="_blank" rel="noreferrer">Xem hồ sơ ↗</a>}
+      {row.content && <p className="preserve">{row.content}</p>}{row.answer_url && <ExternalContent url={row.answer_url} title="Xem hồ sơ" />}
       {fields && <details><summary>Chỉnh sửa</summary><Form fields={fields} initial={row} onSubmit={(values) => mutate(`/admin/${section}/${row.id}`, catalogPayload(values), 'PUT')} /></details>}
       {section === 'courses' && <LessonEditor api={api} course={row} />}
       {section === 'users' && row.id !== user.id && <details><summary>Thay đổi trạng thái</summary><Form fields={[{ name: 'status', label: 'Trạng thái', options: ['active', 'suspended', 'banned'] }, reasonField]} onSubmit={(values) => mutate(`/admin/users/${row.id}/status`, values)} /></details>}

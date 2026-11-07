@@ -18,10 +18,20 @@ App xác minh `/auth/me` trước khi điều hướng trang cần đăng nhập
 nút thử lại và không xóa phiên. Hạn phiên vẫn do backend quyết định, mặc định
 7 ngày. Xem [cơ chế xác thực](../docs/security.md).
 
-Giao diện có chế độ sáng/tối và bố cục responsive. Navbar quản trị gom 14 mục
-vào 5 dropdown: Đào tạo, Thành viên, Cộng đồng, Tài chính, Hệ thống. Mục được
-chọn lưu qua `/admin?section=...`, hỗ trợ tải lại và Back/Forward. Dropdown
-hỗ trợ bàn phím, đóng bằng Escape, chọn liên kết hoặc bấm ra ngoài.
+Giao diện có chế độ sáng/tối và bố cục responsive. Light mode dùng xanh lá
+và góc vuông. Menu tính năng nằm bên trái; danh mục quản trị gom 14 mục vào
+5 nhóm thu gọn trong cùng sidebar. Mục được chọn lưu qua
+`/admin?section=...`, hỗ trợ tải lại và Back/Forward.
+
+Bài học phát ngay trên trang, tự lấy thời lượng từ metadata video và lưu
+thời gian xem mỗi 10 giây, khi dừng, kết thúc hoặc rời bài. Tua không được
+tính thành thời gian xem. Bản lưu trên trình duyệt giúp gửi lại tiến độ khi
+mở lại bài sau lỗi mạng. Nguồn cần hỗ trợ HTML video; Drive preview dự phòng
+không cung cấp sự kiện theo dõi. Xem [giới hạn Drive](../docs/vnpay-drive.md).
+
+Trước khi triển khai phiên bản này, chạy `alembic upgrade head` để thêm
+`lessons.duration_seconds`. Chỉ dữ liệu metadata được bổ sung; điểm đánh giá
+vẫn do backend/quản trị quyết định.
 
 Ví tự làm mới mỗi 15 giây khi đang hiển thị. Thanh toán VNPAY thành công được
 cộng ví tự động qua IPN hợp lệ; admin chỉ đối soát chuyển khoản thủ công/rút tiền.

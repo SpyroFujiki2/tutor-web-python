@@ -185,6 +185,23 @@ class DomainApiTests(DomainApiFixture):
         self.request('POST', path, {'duration_watched': 1})
         self.assertEqual(self.request('GET', f"/subscriptions/{sub['id']}/attendance")[0]['duration_watched'], 600)
 
+    def test_video_metadata_and_watch_time_persist_without_premature_completion(self):
+        course, lesson = self.create_course()
+        sub = self.purchase(course)
+        path = f"/subscriptions/{sub['id']}/lessons/{lesson['id']}/watch"
+        self.request('POST', path, {'duration_watched': 30, 'duration_seconds': 125, 'completed': True})
+        rows = self.request('GET', f"/subscriptions/{sub['id']}/lessons")
+        self.assertEqual(rows[0]['duration_seconds'], 125)
+        attendance = self.request('GET', f"/subscriptions/{sub['id']}/attendance")[0]
+        self.assertEqual(attendance['duration_watched'], 30)
+        self.assertTrue(attendance['is_absent'])
+        self.request('POST', path, {'duration_watched': 5, 'duration_seconds': 10})
+        self.assertEqual(self.request('GET', f"/subscriptions/{sub['id']}/lessons")[0]['duration_seconds'], 125)
+        self.assertEqual(self.request('GET', f"/subscriptions/{sub['id']}/attendance")[0]['duration_watched'], 30)
+        self.request('POST', path, {'duration_watched': 125})
+        self.assertFalse(self.request('GET', f"/subscriptions/{sub['id']}/attendance")[0]['is_absent'])
+        self.request('POST', path, {'duration_watched': 125}, who='other', expected=404)
+
     def test_live_attendance_requires_admin_and_matching_course(self):
         course, lesson = self.create_course(live=True)
         sub = self.purchase(course)

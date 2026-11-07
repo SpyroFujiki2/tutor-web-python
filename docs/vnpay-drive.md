@@ -170,10 +170,15 @@ Việc chưa thấy IPN trong log cũng chưa đủ chứng minh URL chưa đăn
 Thư mục nguồn do người dùng cung cấp:
 [10 video bài giảng](https://drive.google.com/drive/folders/1WM8foEk5gsIMs0OikFlnIiKwp7MvYplF).
 
-Giao diện bài học nhận link `file/d/.../view`, `/preview` hoặc `open?id=...`,
-chuẩn hóa về iframe preview Google Drive và có nút mở trên Drive. Chỉ trang bài
-học có quyền còn hạn mới nhận URL media từ backend. Không proxy tải video qua
-backend và không đổi quyền chia sẻ file/thư mục.
+Giao diện bài học nhận link `file/d/.../view`, `/preview` hoặc `open?id=...`.
+Trình phát thử URL tải trực tiếp bằng HTML video để lấy metadata thời lượng
+và sự kiện phát. Nếu Drive không cho phát trực tiếp, giao diện chuyển sang
+iframe preview ngay trên trang và thông báo tiến độ ở chế độ dự phòng chưa
+được lưu. Không suy đoán thời gian xem từ thời gian iframe đang mở.
+Chỉ trang bài học có quyền còn hạn mới nhận URL media từ backend. Không proxy
+tải video qua backend và không đổi quyền chia sẻ file/thư mục. Để theo dõi
+đầy đủ trong production, dùng URL video hỗ trợ phát trực tiếp; Drive preview
+không hỗ trợ lấy sự kiện phát của video qua iframe khác origin.
 
 Quyền Drive vẫn cần phù hợp với người xem. Người có link và quyền Drive có thể
 mở video ngoài website; cách lưu trữ tạm này không tạo DRM hoặc URL hết hạn.
@@ -197,8 +202,11 @@ Từ thư mục backend:
 Script kiểm tra manifest trước khi kết nối DB; tạo một course và 10 lesson
 trong cùng transaction. UUID được suy ra từ thư mục/file ID. Chạy lại cùng nội
 dung không tạo trùng, không ghi đè khóa đã có dữ liệu khác. Giá seed mặc định 0
-credit. Khi chưa biết thời lượng, để null; không tự tạo thời lượng video. Nút
-đánh dấu đã xem là tự khai và vẫn cần điểm do quản trị chấm để có kết quả cuối.
+credit. Khi chưa biết thời lượng, để null; không tự tạo thời lượng video.
+Trình phát tự gửi thời lượng (giây) khi lấy được metadata và thời gian xem
+qua API `/watch`. Metadata này giống thời gian xem: do trình duyệt báo về,
+không phải bằng chứng chống gian lận. Vẫn cần điểm do quản trị chấm để có
+kết quả cuối. Nút đánh dấu thủ công đã được bỏ khỏi giao diện.
 
 Không có title riêng trong model `lessons`, nên tên gốc được giữ ở manifest;
 giao diện hiển thị thứ tự Bài 1–10 theo schema hiện có.

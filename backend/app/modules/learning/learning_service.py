@@ -33,12 +33,13 @@ def save_lesson(session, admin_id, course_id, values, lesson_id=None):
     course = get(session, Course, course_id, lock=True)
     require(not session.scalar(select(CourseProgress.subscription_id).where(CourseProgress.course_id == course_id).limit(1)),
             "Cấu trúc bài học đã có học viên được cố định; tạo khóa mới để đổi nội dung")
-    require(course.is_live or values.get("duration_minutes"), "Bài VOD cần thời lượng")
     if lesson_id is None:
         row = add(session, Lesson, course_id=course_id, **values)
     else:
         row = get(session, Lesson, lesson_id, lock=True)
         require(row.course_id == course_id, "Bài học không thuộc khóa", LookupError)
+        if row.media_url != values.get("media_url"):
+            row.duration_seconds = None
         for key, value in values.items():
             setattr(row, key, value)
     audit(session, admin, row, "lesson.save", after={"order_idx": row.order_idx})
@@ -102,8 +103,9 @@ def recalculate(session, progress):
     complete = 0
     for lesson in lessons:
         attendance = rows.get(lesson.id)
-        if attendance and (not attendance.is_absent if course.is_live or lesson.duration_minutes is None else
-                           attendance.duration_watched >= lesson.duration_minutes * 60):
+        duration = lesson.duration_seconds or (lesson.duration_minutes * 60 if lesson.duration_minutes else None)
+        if attendance and (not attendance.is_absent if course.is_live or duration is None else
+                           attendance.duration_watched >= duration):
             complete += 1
     ratio = Decimal(complete) / len(lessons) if lessons else Decimal(0)
     progress.attendance_ratio = ratio.quantize(Decimal("0.0001"))
@@ -124,7 +126,7 @@ def recalculate(session, progress):
     return progress
 
 
-def record_attendance(session, user_id, subscription_id, lesson_id, duration_watched, completed=False):
+def record_attendance(session, user_id, subscription_id, lesson_id, duration_watched, completed=False, duration_seconds=None):
     actor(session, user_id)
     progress = get(session, CourseProgress, subscription_id, lock=True)
     lessons = list_my_course_lessons(session, subscription_id, user_id)
@@ -132,8 +134,14 @@ def record_attendance(session, user_id, subscription_id, lesson_id, duration_wat
     require(lesson is not None, "Bài học không thuộc khóa", LookupError)
     require(not get(session, Course, progress.course_id).is_live, "Điểm danh trực tiếp do quản trị ghi nhận")
     row = session.get(Attendance, (subscription_id, lesson_id))
-    duration = min(duration_watched, lesson.duration_minutes * 60) if lesson.duration_minutes else duration_watched
-    confirmed = completed or (lesson.duration_minutes is not None and duration >= lesson.duration_minutes * 60)
+    # Like watch time, browser metadata is self-reported and never an exam grade.
+    # Lock before setting metadata so concurrent learners cannot overwrite it.
+    lesson = get(session, Lesson, lesson.id, lock=True)
+    if duration_seconds is not None and lesson.duration_seconds is None:
+        lesson.duration_seconds = duration_seconds
+    expected = lesson.duration_seconds or (lesson.duration_minutes * 60 if lesson.duration_minutes else None)
+    duration = min(duration_watched, expected) if expected else duration_watched
+    confirmed = (duration >= expected) if expected else completed
     if row is None:
         row = add(session, Attendance, subscription_id=subscription_id, lesson_id=lesson_id,
                   course_id=lesson.course_id, duration_watched=duration, is_absent=not confirmed)

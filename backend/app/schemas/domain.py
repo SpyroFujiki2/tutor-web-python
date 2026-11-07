@@ -155,6 +155,7 @@ class WalletInput(Input):
 class AttendanceInput(Input):
     duration_watched: int = Field(ge=0, le=600000)
     completed: bool = False
+    duration_seconds: int | None = Field(default=None, gt=0, le=600000)
 
 
 class GradeInput(Input):

@@ -145,7 +145,7 @@ def attendance(subscription_id: UUID, session: DB, user: Current):
 @router.post("/subscriptions/{subscription_id}/lessons/{lesson_id}/watch", response_model=out.ProgressResponse)
 def watch(subscription_id: UUID, lesson_id: UUID, payload: inputs.AttendanceInput, session: DB, user: Current):
     return saved(session, learning.record_attendance(session, user.id, subscription_id, lesson_id,
-                 payload.duration_watched, payload.completed), out.ProgressResponse)
+                 payload.duration_watched, payload.completed, payload.duration_seconds), out.ProgressResponse)
 
 
 @router.get("/bookings", response_model=list[out.BookingResponse])

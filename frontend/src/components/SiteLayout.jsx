@@ -31,12 +31,12 @@ export function Header({ user, pathname, theme, onThemeChange, onLogout }) {
   </div>{menuOpen && <nav id="mobile-navigation" className="mobile-nav container" aria-label="Điều hướng trên điện thoại">{publicLinks.map(([href, label]) => <SiteLink key={href} href={href} aria-current={pathname === href ? 'page' : undefined} onClick={() => setMenuOpen(false)}>{label}<Icon name="arrow" size={16} /></SiteLink>)}{!user && <><SiteLink href="/login">Đăng nhập</SiteLink><SiteLink href="/register">Tạo tài khoản</SiteLink></>}</nav>}</header>
 }
 
-export function WorkspaceNav({ user, pathname }) {
-  return <nav className="workspace-nav" aria-label="Không gian cá nhân"><div className="container workspace-nav-inner"><span className="workspace-label">KHÔNG GIAN CỦA BẠN</span>{workspaceLinks.map(([href, icon, label]) => <SiteLink key={href} href={href} aria-current={pathname === href ? 'page' : undefined}><Icon name={icon} size={17} />{label}</SiteLink>)}{isAdmin(user) && <SiteLink href="/admin" aria-current={pathname === '/admin' ? 'page' : undefined}><Icon name="shield" size={17} />Quản trị</SiteLink>}</div></nav>
+export function WorkspaceNav({ user, pathname, adminSection }) {
+  return <aside className="workspace-nav"><nav className="container workspace-nav-inner" aria-label="Không gian cá nhân"><span className="workspace-label">KHÔNG GIAN CỦA BẠN</span>{workspaceLinks.map(([href, icon, label]) => <SiteLink key={href} href={href} aria-current={pathname === href ? 'page' : undefined}><Icon name={icon} size={17} />{label}</SiteLink>)}{isAdmin(user) && <SiteLink href="/admin" aria-current={pathname === '/admin' ? 'page' : undefined}><Icon name="shield" size={17} />Quản trị</SiteLink>}</nav>{isAdmin(user) && pathname === '/admin' && <AdminNavigation selected={adminSection} />}</aside>
 }
 
 export function AdminNavigation({ selected }) {
-  return <nav className="admin-navigation" aria-label="Danh mục quản trị"><span className="admin-nav-label"><Icon name="grid" size={18} />Danh mục</span><div className="admin-nav-groups">{adminGroups.map((group) => <Dropdown key={group.id} label={group.label} icon={group.icon} active={group.items.some((item) => item.id === selected)}><p className="dropdown-caption">QUẢN LÝ {group.label.toLocaleUpperCase('vi')}</p>{group.items.map((item) => <SiteLink href={adminHref(item.id)} key={item.id} aria-current={selected === item.id ? 'page' : undefined}><span className="menu-item-icon"><Icon name={item.icon} size={18} /></span><span><strong>{item.label}</strong><small>{item.description}</small></span>{selected === item.id && <Icon name="check" size={16} />}</SiteLink>)}</Dropdown>)}</div></nav>
+  return <nav className="admin-sidebar" aria-label="Danh mục quản trị">{adminGroups.map((group) => <details key={`${group.id}-${selected}`} open={group.items.some((item) => item.id === selected)}><summary><Icon name={group.icon} size={16} />{group.label}</summary>{group.items.map((item) => <SiteLink href={adminHref(item.id)} key={item.id} aria-current={selected === item.id ? 'page' : undefined}><Icon name={item.icon} size={16} />{item.label}</SiteLink>)}</details>)}</nav>
 }
 
 export function Footer() {
