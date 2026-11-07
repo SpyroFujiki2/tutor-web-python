@@ -36,8 +36,9 @@ export function useResource(api, path, version = 0, pollMs = 0) {
     return () => controller.abort()
   }, [api, path, version, revision])
   const current = state.path === path && state.version === version && state.revision === revision
-  return { data: current ? state.data : null, error: current ? state.error : null,
-    loading: !!path && (!current || (!state.data && !state.error)), reload: () => setRevision((value) => value + 1) }
+  const usable = current || (pollMs > 0 && state.path === path && state.version === version && !!state.data)
+  return { data: usable ? state.data : null, error: current ? state.error : null,
+    loading: !!path && (!usable || (!state.data && !state.error)), reload: () => setRevision((value) => value + 1) }
 }
 
 export const textField = (name, label, extra = {}) => ({ name, label, ...extra })

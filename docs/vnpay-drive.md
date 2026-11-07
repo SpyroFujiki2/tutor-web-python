@@ -75,6 +75,11 @@ Luồng giao diện: **Ví → chọn gói nạp → VNPAY sandbox → tạo đ�
 Cổng thanh toán được mở ở tab riêng để giữ phiên trong tab Tutor Web ban đầu.
 Sau thanh toán, quay lại mục Ví và cập nhật số dư/đơn.
 
+Ví tự làm mới số dư và đơn mỗi 15 giây khi trang đang hiển thị. Đơn VNPAY
+thành công được cập nhật `success` và cộng credit ngay trong transaction xử lý
+IPN hợp lệ, không có bước admin duyệt. Giao diện ví và quản trị hiển thị rõ
+cơ chế tự động này; chỉ đơn chuyển khoản thủ công và rút tiền giữ bước đối soát.
+
 - Giá VND/credit lấy từ gói trong DB và snapshot vào `cash_order`.
 - Mã tham chiếu là UUID đơn dạng hex; các lần thử lại cùng request không tạo đơn mới.
 - Tất cả tham số `vnp_` được sắp xếp, URL encode rồi ký HMAC-SHA512; amount gửi

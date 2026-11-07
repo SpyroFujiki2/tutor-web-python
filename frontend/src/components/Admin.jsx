@@ -3,19 +3,25 @@ import { Action, Badge, Details, Form, Pager, Resource } from './Workspace.jsx'
 import { numberField, reasonField, sessionFields, sessionPayload, textField, useResource } from './workspace-utils.js'
 import { Chat } from './Tutoring.jsx'
 import FinanceAdmin from './FinanceAdmin.jsx'
+import { adminGroups, adminSections, resolveAdminSection } from '../admin-navigation.js'
+import { useLocation } from '../navigation.js'
+import { AdminNavigation } from './SiteLayout.jsx'
+import Icon from './Icon.jsx'
+import { labels } from './workspace-utils.js'
 
-const sections = [['courses', 'Khóa học'], ['tutoring-packages', 'Gói gia sư'], ['credit-packages', 'Gói nạp'], ['users', 'Người dùng'], ['bookings', 'Đơn gia sư'], ['cash-orders', 'Nạp / rút'], ['finance', 'Ví & đối soát'], ['role-requests', 'Nâng bậc'], ['reports', 'Báo cáo'], ['disputes', 'Tranh chấp'], ['settlements', 'Quyết toán'], ['progress', 'Kết quả học'], ['posts', 'Bài viết'], ['action-logs', 'Nhật ký']]
 const catalogFields = {
   courses: [textField('title', 'Tên khóa học', { maxLength: 200 }), textField('description', 'Mô tả', { type: 'textarea', optional: true }), numberField('price', 'Giá (credit)'), { name: 'is_live', label: 'Khóa học trực tiếp', type: 'checkbox' }, { name: 'status', label: 'Hiển thị', options: ['visible', 'hidden'], default: 'visible' }],
   'tutoring-packages': [textField('name', 'Tên gói', { maxLength: 200 }), numberField('price', 'Giá (credit)'), { name: 'is_active', label: 'Mở bán', type: 'checkbox', default: true }],
   'credit-packages': [textField('name', 'Tên gói', { maxLength: 200 }), numberField('credits', 'Số credit', { min: 1 }), numberField('price', 'Giá (VND)', { min: 1 }), { name: 'is_active', label: 'Mở bán', type: 'checkbox', default: true }],
 }
 const lessonFields = [numberField('order_idx', 'Thứ tự', { min: 1, max: 10000 }), textField('media_url', 'URL nội dung', { type: 'url', optional: true }), textField('assignment_url', 'URL bài tập', { type: 'url', optional: true }), numberField('duration_minutes', 'Thời lượng (phút)', { min: 1, max: 10000, optional: true }), numberField('session_count', 'Số buổi', { min: 1, max: 1000, optional: true })]
-const rowFields = ['id', 'subscription_id', 'email', 'role', 'status', 'customer_id', 'tutor_id', 'booking_id', 'course_id', 'user_id', 'admin_id', 'title_at_purchase', 'order_type', 'amount_vnd', 'credit_amount', 'current_role_at_request', 'request_note', 'admin_note', 'reason_details', 'is_completed', 'verdict', 'total_amount', 'platform_fee', 'tutor_income', 'release_date', 'actual_released_at', 'progress_percent', 'final_score', 'result', 'action_code', 'target_type', 'reason', 'is_hidden', 'created_at']
+const rowFields = ['id', 'subscription_id', 'email', 'role', 'status', 'price', 'credits', 'is_active', 'is_live', 'customer_id', 'tutor_id', 'booking_id', 'course_id', 'user_id', 'admin_id', 'title_at_purchase', 'order_type', 'amount_vnd', 'credit_amount', 'current_role_at_request', 'request_note', 'admin_note', 'reason_details', 'is_completed', 'verdict', 'total_amount', 'platform_fee', 'tutor_income', 'release_date', 'actual_released_at', 'progress_percent', 'final_score', 'result', 'action_code', 'target_type', 'reason', 'is_hidden', 'created_at']
 
 export default function Admin({ api, user }) {
-  const [section, setSection] = useState('courses')
-  return <section><p className="eyebrow">Không gian vận hành</p><h1>Quản trị</h1><nav className="tabs" aria-label="Danh mục quản trị">{sections.map(([value, label]) => <button key={value} aria-pressed={section === value} onClick={() => setSection(value)}>{label}</button>)}</nav>{section === 'finance' ? <FinanceAdmin api={api} user={user} /> : <AdminList key={section} api={api} user={user} section={section} />}</section>
+  const location = useLocation()
+  const current = resolveAdminSection(location)
+  const group = adminGroups.find((group) => group.items.some((item) => item.id === current.id))
+  return <section className="admin-page"><div className="admin-welcome"><div><p className="eyebrow"><span className="online-dot" />KHÔNG GIAN VẬN HÀNH</p><h1>Quản trị, gọn trong tầm tay.</h1><p>Quản lý hoạt động đào tạo, thành viên và tài chính trong một không gian.</p></div><div className="admin-identity"><span className="admin-identity-icon"><Icon name="shield" size={27} /></span><div><strong>{labels[user.role]}</strong><small>{user.email}</small></div></div></div><AdminNavigation key={current.id} selected={current.id} /><div className="admin-breadcrumb"><span>Quản trị</span><Icon name="arrow" size={12} /><span>{group.label}</span><Icon name="arrow" size={12} /><strong>{current.label}</strong></div>{current.id === 'finance' ? <FinanceAdmin api={api} user={user} /> : <AdminList key={current.id} api={api} user={user} section={current.id} />}</section>
 }
 
 function AdminList({ api, user, section }) {
@@ -27,18 +33,21 @@ function AdminList({ api, user, section }) {
     return result
   }
   const fields = catalogFields[section]
+  const current = adminSections.find((item) => item.id === section)
   const catalogPayload = (values) => ({ ...values, ...(section === 'courses' ? { description: values.description ?? '' } : {}) })
   return <>
-    <div className="actions"><button onClick={resource.reload}>Làm mới</button>{section === 'action-logs' && <><Action onClick={() => mutate('/admin/jobs/snapshots')}>Chụp số dư hôm nay</Action><Action onClick={() => mutate('/admin/jobs/expire-subscriptions')}>Cập nhật quyền hết hạn</Action></>}</div>
-    {fields && <details className="card card-body"><summary>Tạo mới</summary><Form fields={fields} reset onSubmit={(values) => mutate(`/admin/${section}`, catalogPayload(values))} /></details>}
-    <Resource resource={resource}>{(rows) => <><div className="stack">{rows.map((row) => <article className="card card-body" key={row.id ?? row.subscription_id}>
-      <div className="row"><h2>{row.title ?? row.name ?? row.subject ?? row.reason_category ?? row.email ?? sections.find(([value]) => value === section)?.[1]}</h2>{row.status && <Badge value={row.status} />}</div><Details row={row} fields={rowFields} />
+    <div className="admin-section-heading"><div><h2>{current.label}</h2><p>{current.description}</p></div><div className="actions"><button onClick={resource.reload}><Icon name="refresh" size={16} />Làm mới</button>{section === 'action-logs' && <><Action onClick={() => mutate('/admin/jobs/snapshots')}>Chụp số dư hôm nay</Action><Action onClick={() => mutate('/admin/jobs/expire-subscriptions')}>Cập nhật quyền hết hạn</Action></>}</div></div>
+    {section === 'cash-orders' && <div className="notice payment-policy"><Icon name="shield" size={21} /><div><strong>VNPAY xác nhận tự động</strong><p>Thanh toán VNPAY thành công sẽ tự cộng credit vào ví. Quản trị chỉ đối soát đơn chuyển khoản thủ công và yêu cầu rút tiền.</p></div></div>}
+    {fields && <details className="card card-body create-record"><summary><Icon name="plus" size={18} />Tạo mới {current.label.toLocaleLowerCase('vi')}</summary><Form fields={fields} reset onSubmit={(values) => mutate(`/admin/${section}`, catalogPayload(values))} /></details>}
+    <Resource resource={resource}>{(rows) => <><div className="stack admin-records">{rows.map((row) => <article className="card card-body admin-record" key={row.id ?? row.subscription_id}>
+      <div className="row"><h2>{row.title ?? row.name ?? row.subject ?? row.reason_category ?? row.email ?? current.label}</h2>{row.status && <Badge value={row.status} />}</div><Details row={row} fields={rowFields.filter((key) => key !== 'id' && !key.endsWith('_id'))} />
+      {rowFields.some((key) => (key === 'id' || key.endsWith('_id')) && row[key]) && <details className="reference-details"><summary>Mã tham chiếu</summary><Details row={row} fields={rowFields.filter((key) => key === 'id' || key.endsWith('_id'))} /></details>}
       {row.content && <p className="preserve">{row.content}</p>}{row.answer_url && <a href={row.answer_url} target="_blank" rel="noreferrer">Xem hồ sơ ↗</a>}
       {fields && <details><summary>Chỉnh sửa</summary><Form fields={fields} initial={row} onSubmit={(values) => mutate(`/admin/${section}/${row.id}`, catalogPayload(values), 'PUT')} /></details>}
       {section === 'courses' && <LessonEditor api={api} course={row} />}
       {section === 'users' && row.id !== user.id && <details><summary>Thay đổi trạng thái</summary><Form fields={[{ name: 'status', label: 'Trạng thái', options: ['active', 'suspended', 'banned'] }, reasonField]} onSubmit={(values) => mutate(`/admin/users/${row.id}/status`, values)} /></details>}
       {section === 'bookings' && <BookingAdmin api={api} row={row} mutate={mutate} />}
-      {section === 'cash-orders' && row.provider === 'vnpay' && <p>Đơn VNPAY được cập nhật tự động qua IPN.</p>}
+      {section === 'cash-orders' && row.provider === 'vnpay' && <p className={`payment-state ${row.status === 'success' ? 'is-success' : ''}`}><Icon name={row.status === 'success' ? 'check' : 'clock'} size={17} />{row.status === 'success' ? 'VNPAY đã xác nhận · Credit đã được cộng tự động.' : row.status === 'pending' ? 'Đang chờ VNPAY xác nhận · Không cần quản trị duyệt.' : 'Đơn VNPAY được cập nhật tự động theo kết quả thanh toán.'}</p>}
       {section === 'cash-orders' && row.provider !== 'vnpay' && user.role === 'head_admin' && row.status === 'pending' && <>{row.order_type === 'out' && <BankDetails api={api} id={row.id} />}<details><summary>Xác nhận sau đối soát</summary><p>Chỉ xác nhận sau khi tiền đã thực nhận hoặc chuyển đi. Ghi tham chiếu chứng từ trong lý do.</p><Form fields={[{ name: 'success', label: 'Kết quả', options: [{ value: 'true', label: 'Thành công' }, { value: 'false', label: 'Thất bại' }] }, reasonField]} onSubmit={(values) => mutate(`/admin/cash-orders/${row.id}/decision`, { ...values, success: values.success === 'true' })} /></details></>}
       {section === 'role-requests' && row.status === 'pending' && <Decision onSubmit={(values) => mutate(`/admin/role-requests/${row.id}/decision`, values)} />}
       {section === 'reports' && row.status === 'pending' && <>{!row.admin_id && <Action onClick={() => mutate(`/admin/reports/${row.id}/claim`)}>Nhận xử lý</Action>}{row.admin_id === user.id && <><ReportContext api={api} id={row.id} /><Decision onSubmit={(values) => mutate(`/admin/reports/${row.id}/decision`, values)} /></>}</>}

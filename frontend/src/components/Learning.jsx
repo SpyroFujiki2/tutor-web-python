@@ -8,6 +8,7 @@ import CollectionToolbar from './CollectionToolbar.jsx'
 import ContentDialog from './ContentDialog.jsx'
 import Icon from './Icon.jsx'
 import SiteLink from './SiteLink.jsx'
+import PageHeading from './PageHeading.jsx'
 
 const formatOptions = [['all', 'Mọi hình thức'], ['video', 'Học qua video'], ['live', 'Lớp trực tiếp']]
 const priceOptions = [['all', 'Mọi mức giá'], ['free', 'Miễn phí'], ['paid', 'Có học phí']]
@@ -62,7 +63,7 @@ export function MyLearning({ api }) {
   const [selected, setSelected] = useState(null)
   const resource = useResource(api, `/me/subscriptions?limit=20&offset=${offset}`)
   if (selected) return <CourseRoom key={selected.id} api={api} subscription={selected} onBack={() => setSelected(null)} />
-  return <section><p className="eyebrow">Mỗi ngày một bước tiến</p><h1>Việc học của tôi</h1>
+  return <section className="learning-page"><PageHeading eyebrow="MỖI NGÀY MỘT BƯỚC TIẾN" title="Việc học của tôi" description="Tiếp tục từ nơi bạn dừng lại. Khóa học, bài giảng và kết quả học tập ở ngay đây." icon="book" />
     <Resource resource={resource} empty="Bạn chưa đăng ký khóa học hoặc gói gia sư.">{(rows) => <>
       <div className="card-grid">{rows.map((row) => <article className="card card-body" key={row.id}><Badge value={row.type} /><h2>{row.title_at_purchase}</h2>
         <Details row={row} fields={['status', 'activated_at', 'expired_at', 'price_at_purchase']} />

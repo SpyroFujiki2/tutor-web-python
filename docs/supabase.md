@@ -73,6 +73,12 @@ Tùy chọn này từ chối database local trước khi mở connection. Lệnh
 ghi dữ liệu, không seed và không in mật khẩu. Sau khi kiểm tra thành công,
 khởi động lại backend và kiểm tra `/api/ready`.
 
+Migration không sao chép các tài khoản seed từ database local. Để tạo lại
+7 tài khoản theo role và 3 gói gia sư trên Supabase bằng `.env.seed` hiện có,
+chạy [quy trình seed Supabase](seed-data.md#seed-trên-supabase-sau-khi-deploy)
+với cùng database mà backend Vercel sử dụng. Tài khoản nằm trong
+`public.users`, không phải mục Supabase Authentication (`auth.users`).
+
 Trên Vercel, đặt `DATABASE_URL` và `JWT_SECRET_KEY` trong Environment
 Variables rồi redeploy. Các file `.env*` local không được upload. Nếu dùng
 JWT riêng hiện tại, giữ `JWT_SECRET_KEY` riêng; publishable key của Supabase

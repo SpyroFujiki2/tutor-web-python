@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import { afterEach, mock, test } from 'node:test'
 import { ApiError, createApiClient } from '../src/services/api.js'
+import { SESSION_KEY } from '../src/services/session.js'
+import { Buffer } from 'node:buffer'
 
 afterEach(() => mock.restoreAll())
 
@@ -130,4 +132,153 @@ test('private attachments upload raw bytes and download with authorization', asy
   })
   await client.request('/bookings/example/attachments?name=fixture.pdf', { method: 'POST', rawBody: blob, contentType: blob.type })
   assert.equal(await (await client.request('/bookings/example/attachments/file.pdf', { responseType: 'blob' })).text(), '%PDF-1.7\nfixture')
+})
+
+function memoryStorage() {
+  const data = new Map()
+  return { getItem: (key) => data.get(key) ?? null, setItem: (key, value) => data.set(key, value), removeItem: (key) => data.delete(key) }
+}
+
+const sessionKey = `${SESSION_KEY}:same-origin`
+const token = (sid, version) => `header.${Buffer.from(JSON.stringify({ sid })).toString('base64url')}.${version}`
+const pair = (sid, version) => ({ access_token: token(sid, `access-${version}`), refresh_token: token(sid, `refresh-${version}`) })
+
+test('a new client restores a saved login after reload and logout removes it', async () => {
+  const storage = memoryStorage()
+  const first = createApiClient('', { storage })
+  first.setTokens(pair('session-one', 1))
+  const reloaded = createApiClient('', { storage })
+  assert.equal(reloaded.hasSession(), true)
+  mock.method(globalThis, 'fetch', async (_url, options) => {
+    assert.equal(options.headers.Authorization, `Bearer ${pair('session-one', 1).access_token}`)
+    return Response.json({ id: 'user-one' })
+  })
+  assert.deepEqual(await reloaded.request('/auth/me'), { id: 'user-one' })
+  reloaded.setTokens(null)
+  assert.equal(storage.getItem(sessionKey), null)
+  assert.equal(first.hasSession(), false)
+  assert.equal(createApiClient('', { storage }).hasSession(), false)
+})
+
+test('expired credentials are rotated and saved for the next page load', async () => {
+  const storage = memoryStorage()
+  const client = createApiClient('', { storage })
+  client.setTokens(pair('one', 1))
+  mock.method(globalThis, 'fetch', async (url, options) => {
+    if (url.endsWith('/auth/refresh')) return Response.json(pair('one', 2))
+    return options.headers.Authorization === `Bearer ${pair('one', 1).access_token}`
+      ? Response.json({ detail: 'Expired' }, { status: 401 }) : Response.json({ ok: true })
+  })
+  await client.request('/auth/me')
+  assert.deepEqual(JSON.parse(storage.getItem(sessionKey)), pair('one', 2))
+  assert.deepEqual(await createApiClient('', { storage }).request('/auth/me'), { ok: true })
+})
+
+test('a temporary refresh outage preserves the login and can recover', async () => {
+  const storage = memoryStorage()
+  let unauthorized = 0
+  let offline = true
+  const client = createApiClient('', { storage, onUnauthorized: () => unauthorized++ })
+  client.setTokens(pair('one', 1))
+  mock.method(globalThis, 'fetch', async (url, options) => {
+    if (url.endsWith('/auth/refresh')) {
+      if (offline) throw new TypeError('offline')
+      return Response.json(pair('one', 2))
+    }
+    return options.headers.Authorization === `Bearer ${pair('one', 1).access_token}`
+      ? Response.json({ detail: 'Expired' }, { status: 401 }) : Response.json({ ok: true })
+  })
+  await assert.rejects(client.request('/auth/me'), /Không kết nối/)
+  assert.equal(unauthorized, 0)
+  assert.equal(client.hasSession(), true)
+  assert.deepEqual(JSON.parse(storage.getItem(sessionKey)), pair('one', 1))
+  offline = false
+  assert.deepEqual(await client.request('/auth/me'), { ok: true })
+})
+
+test('two browser tabs serialize single-use refresh and both keep working', async () => {
+  const storage = memoryStorage()
+  let queue = Promise.resolve()
+  const locks = { request: (_key, work) => {
+    const result = queue.then(work)
+    queue = result.catch(() => {})
+    return result
+  } }
+  const first = createApiClient('', { storage, locks })
+  first.setTokens(pair('one', 1))
+  const second = createApiClient('', { storage, locks })
+  let refreshes = 0
+  mock.method(globalThis, 'fetch', async (url, options) => {
+    if (url.endsWith('/auth/refresh')) {
+      refreshes++
+      assert.deepEqual(JSON.parse(options.body), { refresh_token: pair('one', 1).refresh_token })
+      await new Promise((resolve) => setTimeout(resolve, 5))
+      return Response.json(pair('one', 2))
+    }
+    return options.headers.Authorization === `Bearer ${pair('one', 1).access_token}`
+      ? Response.json({ detail: 'Expired' }, { status: 401 }) : Response.json({ ok: true })
+  })
+  assert.deepEqual(await Promise.all([first.request('/auth/me'), second.request('/me/wallets')]), [{ ok: true }, { ok: true }])
+  assert.equal(refreshes, 1)
+  assert.equal(first.hasSession(), true)
+  assert.equal(second.hasSession(), true)
+})
+
+test('logout in another tab during refresh cannot restore the removed session', async () => {
+  const storage = memoryStorage()
+  const first = createApiClient('', { storage })
+  first.setTokens(pair('one', 1))
+  const second = createApiClient('', { storage })
+  let startRefresh, finishRefresh
+  const started = new Promise((resolve) => { startRefresh = resolve })
+  mock.method(globalThis, 'fetch', async (url) => {
+    if (url.endsWith('/auth/refresh')) {
+      startRefresh()
+      return new Promise((resolve) => { finishRefresh = resolve })
+    }
+    return Response.json({ detail: 'Expired' }, { status: 401 })
+  })
+  const pending = first.request('/auth/me')
+  await started
+  second.setTokens(null)
+  finishRefresh(Response.json(pair('one', 2)))
+  await assert.rejects(pending, (error) => error.status === 401)
+  assert.equal(storage.getItem(sessionKey), null)
+  assert.equal(first.hasSession(), false)
+})
+
+test('storage events synchronize sign-out and listeners are cleaned up', () => {
+  const storage = memoryStorage()
+  const events = new EventTarget()
+  const client = createApiClient('', { storage, eventTarget: events })
+  client.setTokens(pair('one', 1))
+  let changes = 0
+  const unsubscribe = client.subscribeSession(() => changes++)
+  storage.removeItem(sessionKey)
+  const changed = new Event('storage')
+  Object.defineProperty(changed, 'key', { value: sessionKey })
+  events.dispatchEvent(changed)
+  assert.equal(changes, 1)
+  assert.equal(client.hasSession(), false)
+  unsubscribe()
+  storage.setItem(sessionKey, JSON.stringify(pair('two', 1)))
+  events.dispatchEvent(changed)
+  assert.equal(changes, 1)
+})
+
+test('blocked or corrupted browser storage still allows an in-memory login', async () => {
+  const storage = { getItem: () => { throw new Error('blocked') }, setItem: () => { throw new Error('blocked') }, removeItem: () => { throw new Error('blocked') } }
+  const client = createApiClient('', { storage })
+  assert.equal(client.hasSession(), false)
+  client.setTokens(pair('one', 1))
+  mock.method(globalThis, 'fetch', async (_url, options) => {
+    assert.equal(options.headers.Authorization, `Bearer ${pair('one', 1).access_token}`)
+    return Response.json({ ok: true })
+  })
+  assert.deepEqual(await client.request('/auth/me'), { ok: true })
+  const corrupted = memoryStorage()
+  corrupted.setItem(sessionKey, '{broken-json')
+  assert.equal(createApiClient('', { storage: corrupted }).hasSession(), false)
+  corrupted.setItem(sessionKey, JSON.stringify({ access_token: 'access-only' }))
+  assert.equal(createApiClient('', { storage: corrupted }).hasSession(), false)
 })

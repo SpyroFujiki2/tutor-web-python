@@ -1,22 +1,24 @@
 import { useState } from 'react'
 import { Action, Badge, Details, Form, Pager, Resource } from './Workspace.jsx'
 import { money, numberField, textField, useResource } from './workspace-utils.js'
+import PageHeading from './PageHeading.jsx'
+import Icon from './Icon.jsx'
 
 const bankFields = [textField('bank_name', 'Ngân hàng'), textField('account_number', 'Số tài khoản', { minLength: 4, maxLength: 40 }), textField('account_holder_name', 'Tên chủ tài khoản')]
 
 export default function Wallet({ api, user }) {
   const [version, setVersion] = useState(0)
-  const wallets = useResource(api, '/me/wallets', version)
+  const wallets = useResource(api, '/me/wallets', version, 15000)
   const packages = useResource(api, '/credit-packages?limit=100')
   const banks = useResource(api, '/me/payment-methods', version)
   const [offset, setOffset] = useState(0)
-  const orders = useResource(api, `/me/cash-orders?limit=20&offset=${offset}`, version)
+  const orders = useResource(api, `/me/cash-orders?limit=20&offset=${offset}`, version, 15000)
   const [reviewPackage, setReviewPackage] = useState(null)
   const [paymentLink, setPaymentLink] = useState(null)
   const vnpay = useResource(api, '/payments/vnpay/status')
   const [historyType, setHistoryType] = useState('normal')
   const refresh = () => setVersion((value) => value + 1)
-  return <section><p className="eyebrow">Quản lý học phí</p><h1>Ví & thanh toán</h1>
+  return <section className="wallet-page"><PageHeading eyebrow="CHỦ ĐỘNG CHO HÀNH TRÌNH HỌC" title="Ví & thanh toán" description="Quản lý credit, nạp học phí và theo dõi mọi giao dịch của bạn." icon="wallet" />
     <Resource resource={wallets}>{(rows) => <div className="card-grid">{rows.map((row) => <article className="card wallet-card" key={row.id}>
       <Badge value={row.type} /><p className="balance">{money(row.available_balance)} <small>credit</small></p><Details row={row} fields={['spendable_balance', 'reserved_withdrawals', 'holding_balance', 'debt', 'commission_rate']} />
       {!row.is_active && <p>Ví đang khóa. Bạn vẫn có thể xem lịch sử.</p>}
@@ -34,7 +36,7 @@ export default function Wallet({ api, user }) {
       <Form fields={[numberField('amount', 'Số credit trả nợ', { min: 1 })]} submit="Xác nhận trả nợ" onSubmit={async (values, requestId) => {
         await api.request('/me/debt-repayments', { method: 'POST', body: { ...values, request_id: requestId } }); refresh()
       }} /></div>}
-    <p className="muted">Đơn rút đang chờ sẽ giữ phần số dư tương ứng. VNPAY tự xác nhận đơn nạp; chuyển khoản và rút tiền được quản trị đối soát.</p>
+    <div className="notice payment-policy"><Icon name="shield" size={22} /><div><strong>Nạp VNPAY, nhận credit tự động</strong><p>Thanh toán VNPAY thành công sẽ tự cộng ví sau khi hệ thống nhận xác nhận. Bạn không cần chờ admin duyệt. Chuyển khoản thủ công và rút tiền được quản trị đối soát.</p></div></div>
     <h2>Nạp credit</h2><Resource resource={packages} empty="Chưa có gói nạp.">{(rows) => <div className="card-grid">{rows.map((row) => <article className="card card-body" key={row.id}>
       <h3>{row.name}</h3><p><strong>{money(row.credits)} credit</strong> · {money(row.price)} đ</p><button onClick={() => setReviewPackage(row)}>Chọn gói</button>
     </article>)}</div>}</Resource>
@@ -66,6 +68,7 @@ export default function Wallet({ api, user }) {
         ]} submit="Tạo đơn rút" onSubmit={async (values, requestId) => { await api.request('/me/withdrawals', { method: 'POST', body: { ...values, request_id: requestId } }); refresh() }} />}
       </section></div>
     <h2>Đơn nạp / rút</h2><button onClick={refresh}>Cập nhật số dư & đơn</button><Resource resource={orders} empty="Chưa có đơn thanh toán.">{(rows) => <><div className="card-grid">{rows.map((row) => <article className="card card-body" key={row.id}><Badge value={row.status} /><p>{row.provider === 'vnpay' ? 'VNPAY' : 'Xác nhận thủ công'}</p><Details row={row} fields={['id', 'order_type', 'credit_amount', 'amount_vnd', 'created_at']} />
+      {row.provider === 'vnpay' && <p className={`payment-state ${row.status === 'success' ? 'is-success' : ''}`}><Icon name={row.status === 'success' ? 'check' : 'clock'} size={17} />{row.status === 'success' ? 'Đã tự động cộng credit vào ví.' : row.status === 'pending' ? 'Chờ VNPAY xác nhận · Không cần admin duyệt.' : 'Đã cập nhật theo kết quả thanh toán VNPAY.'}</p>}
       {row.provider === 'vnpay' && row.status === 'pending' && <Action onClick={async () => setPaymentLink(await api.request('/payments/vnpay/checkout', { method: 'POST', body: { request_id: row.id, package_id: row.package_id } }))}>Mở lại thanh toán VNPAY</Action>}
       {row.provider !== 'vnpay' && row.status === 'pending' && <Action onClick={async () => {
         await api.request(`/me/cash-orders/${row.id}/cancel`, { method: 'POST' }); refresh()

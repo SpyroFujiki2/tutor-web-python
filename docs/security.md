@@ -2,8 +2,23 @@
 
 Ngoài login/refresh/logout/me, đã có register, change-password, change-email,
 logout-all, danh sách phiên và thu hồi từng phiên. Đổi email/mật khẩu cần mật
-khẩu hiện tại và thu hồi mọi phiên cùng transaction. Frontend chỉ giữ token
-trong bộ nhớ và tuần tự hóa refresh. Xem [trạng thái triển khai](implementation.md).
+khẩu hiện tại và thu hồi mọi phiên cùng transaction. Frontend lưu cặp token
+trong `localStorage` theo origin/API để duy trì đăng nhập khi tải lại hoặc mở
+tab mới. Khi khởi động, `/auth/me` xác minh phiên trước khi mở trang cần đăng
+nhập. Quyền và trạng thái tài khoản vẫn do backend xác minh ở mỗi request.
+Xem [trạng thái triển khai](implementation.md).
+
+Refresh được tuần tự hóa trong mỗi tab và qua Web Locks giữa các tab trên
+trình duyệt hỗ trợ. Token mới được lưu sau mỗi lần rotation; sự kiện storage
+đồng bộ thay đổi tài khoản/đăng xuất giữa các tab. Lỗi mạng, timeout hoặc 5xx
+khi refresh không xóa phiên; refresh bị từ chối bằng 401/403 mới kết thúc phiên.
+Đăng xuất xóa thông tin phiên trên trình duyệt kể cả khi API không kết nối được.
+Hạn tuyệt đối vẫn theo refresh JWT (mặc định 7 ngày), không tự kéo dài vô hạn.
+
+Nếu trình duyệt chặn storage, phiên dùng bộ nhớ và mất khi tải lại. Storage
+có thể được JavaScript cùng origin đọc, nên cần giữ nội dung người dùng ở
+dạng text, không đưa script không tin cậy vào origin ứng dụng, và dùng HTTPS
+khi deploy. Không lưu mật khẩu hoặc `JWT_SECRET_KEY` trên frontend.
 
 Các test đồng thời trên PostgreSQL xác minh refresh reuse, logout-all và khóa
 user không để lại token dùng được sau thu hồi. Mật khẩu không bị strip/normalize.

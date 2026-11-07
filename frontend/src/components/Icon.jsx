@@ -1,4 +1,10 @@
 const paths = {
+  grid: <><rect x="3" y="3" width="7" height="7" rx="2" /><rect x="14" y="3" width="7" height="7" rx="2" /><rect x="3" y="14" width="7" height="7" rx="2" /><rect x="14" y="14" width="7" height="7" rx="2" /></>,
+  plus: <path d="M12 5v14M5 12h14" />,
+  refresh: <><path d="M20 7a8 8 0 0 0-14-2L3 8m0-5v5h5m-4 9a8 8 0 0 0 14 2l3-3m0 5v-5h-5" /></>,
+  chart: <><path d="M4 3v18h17M8 16v-5m5 5V7m5 9v-3" /></>,
+  flag: <><path d="M4 22V3m0 1c5-4 11 4 16 0v10c-5 4-11-4-16 0" /></>,
+  exchange: <><path d="M4 7h15m-4-4 4 4-4 4M20 17H5m4-4-4 4 4 4" /></>,
   arrow: <><path d="M5 12h14M13 6l6 6-6 6" /></>,
   back: <><path d="M19 12H5m6-6-6 6 6 6" /></>,
   book: <><path d="M12 6c-3-2-6-2-10-1v15c4-1 7-1 10 1 3-2 6-2 10-1V5c-4-1-7-1-10 1Zm0 0v15" /></>,

@@ -33,7 +33,7 @@ export default function AuthPage({ mode, expired, next, onAuthenticate }) {
         {register && <label htmlFor="auth-confirm-password">Xác nhận mật khẩu<div className="input-with-icon"><Icon name="lock" size={18} /><input id="auth-confirm-password" name="confirm_password" type={visible ? 'text' : 'password'} autoComplete="new-password" placeholder="Nhập lại mật khẩu" required minLength={8} maxLength={1024} /></div></label>}
         {error && <p className="notice error" role="alert"><Icon name="alert" size={18} />{error}</p>}
         <button className="primary auth-submit" type="submit">{busy ? <><span className="spinner" />Đang xử lý…</> : <>{register ? 'Tạo tài khoản' : 'Đăng nhập'}<Icon name="arrow" size={18} /></>}</button>
-      </fieldset></form><p className="auth-switch">{register ? 'Bạn đã có tài khoản?' : 'Chưa có tài khoản?'} <SiteLink href={alternate}>{register ? 'Đăng nhập' : 'Đăng ký ngay'}</SiteLink></p><div className="auth-reassurance"><Icon name="shield" size={16} /><span>Tài khoản riêng cho hành trình học tập của bạn.</span></div>
+      </fieldset></form><p className="auth-switch">{register ? 'Bạn đã có tài khoản?' : 'Chưa có tài khoản?'} <SiteLink href={alternate}>{register ? 'Đăng nhập' : 'Đăng ký ngay'}</SiteLink></p><div className="auth-reassurance"><Icon name="shield" size={18} /><span>Duy trì đăng nhập trên trình duyệt này.<br />Bạn có thể quản lý và thu hồi phiên trong Tài khoản.</span></div>
     </div></div>
   </section>
 }

@@ -1,17 +1,17 @@
 :root {
   color-scheme: light;
-  --bg: #f8f9fd;
+  --bg: #f7f7f3;
   --surface: #ffffff;
-  --surface-soft: #f0f2f9;
-  --surface-hover: #e9ecf7;
-  --ink: #20283f;
-  --muted: #657087;
-  --subtle: #8b93a6;
-  --line: #e4e7f0;
-  --accent: #5952dc;
-  --accent-hover: #4841c8;
-  --accent-soft: #eeedff;
-  --accent-ink: #514ac8;
+  --surface-soft: #f1f1f5;
+  --surface-hover: #eae9f2;
+  --ink: #252538;
+  --muted: #696a7a;
+  --subtle: #9293a1;
+  --line: #e5e5eb;
+  --accent: #5952d8;
+  --accent-hover: #4640b8;
+  --accent-soft: #eeecfb;
+  --accent-ink: #5148be;
   --on-accent: #ffffff;
   --success: #167a60;
   --success-bg: #e4f5ee;
@@ -20,8 +20,8 @@
   --warning: #946515;
   --warning-bg: #fff3da;
   --header-bg: #ffffffed;
-  --shadow: 0 12px 36px -16px #28366b24;
-  --shadow-lg: 0 30px 80px -30px #33397845;
+  --shadow: 0 8px 28px -12px #2525381c;
+  --shadow-lg: 0 22px 60px -16px #25253830;
   --green: var(--accent);
   --paper: var(--surface);
   --cream: var(--bg);
@@ -38,17 +38,17 @@
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #0e1422;
-  --surface: #161f31;
-  --surface-soft: #1c273b;
-  --surface-hover: #25324b;
+  --bg: #14141e;
+  --surface: #1d1d2c;
+  --surface-soft: #252536;
+  --surface-hover: #2e2d42;
   --ink: #edf0fa;
   --muted: #a2aec4;
   --subtle: #8290aa;
-  --line: #29354c;
-  --accent: #938bff;
-  --accent-hover: #aaa3ff;
-  --accent-soft: #292643;
+  --line: #343346;
+  --accent: #b1a8ff;
+  --accent-hover: #c4beff;
+  --accent-soft: #302b4d;
   --accent-ink: #b8b2ff;
   --on-accent: #121329;
   --success: #70d5b5;
@@ -57,7 +57,7 @@
   --danger-bg: #3d2231;
   --warning: #f1cb80;
   --warning-bg: #392f20;
-  --header-bg: #0e1422ed;
+  --header-bg: #14141ef5;
   --shadow: 0 12px 36px -16px #00000080;
   --shadow-lg: 0 30px 80px -30px #000000b3;
 }
@@ -74,8 +74,8 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 input, select, textarea { color: var(--ink); background: var(--surface); }
 h1, h2, h3, h4, p { overflow-wrap: anywhere; }
 h1, h2, h3, h4 { line-height: 1.3; color: var(--ink); }
-h1 { font-size: clamp(29px, 3.2vw, 42px); letter-spacing: -1.4px; margin: 10px 0 16px; font-weight: 760; }
-h2 { font-size: 23px; letter-spacing: -.55px; margin: 0 0 14px; font-weight: 700; }
+h1 { font-size: clamp(30px, 3.1vw, 42px); letter-spacing: -1.4px; margin: 10px 0 16px; font-weight: 750; }
+h2 { font-size: 24px; letter-spacing: -.55px; margin: 0 0 14px; font-weight: 700; }
 h3 { font-size: 17px; letter-spacing: -.25px; margin: 0 0 8px; }
 p { margin: 0 0 16px; }
 img, video { max-width: 100%; }

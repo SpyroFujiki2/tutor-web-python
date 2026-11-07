@@ -1,12 +1,13 @@
 import { Action, Details, Form, Resource } from './Workspace.jsx'
 import { date, textField, useResource } from './workspace-utils.js'
+import PageHeading from './PageHeading.jsx'
 
 export default function Account({ api, user, onLogout }) {
   const roles = useResource(api, '/me/role-requests?limit=100')
   const reports = useResource(api, '/me/reports?limit=100')
   const settlements = useResource(api, '/me/settlements?limit=100')
   const sessions = useResource(api, '/auth/sessions')
-  return <section><h1>Tài khoản</h1><div className="split"><div className="card card-body"><h2>Thông tin đăng nhập</h2><Details row={user} fields={['id', 'email', 'role', 'status']} />
+  return <section className="account-page"><PageHeading eyebrow="KHÔNG GIAN RIÊNG CỦA BẠN" title="Tài khoản & bảo mật" description="Cập nhật thông tin, quản lý các phiên đăng nhập và theo dõi yêu cầu của bạn." icon="settings" /><div className="split"><div className="card card-body"><h2>Thông tin đăng nhập</h2><Details row={user} fields={['email', 'role', 'status']} />
     <details><summary>Đổi mật khẩu</summary><Form fields={[
       textField('old_password', 'Mật khẩu hiện tại', { type: 'password', autoComplete: 'current-password' }),
       textField('new_password', 'Mật khẩu mới', { type: 'password', minLength: 8, autoComplete: 'new-password' }),

@@ -30,5 +30,47 @@ lệnh dừng để tránh ghi đè. Giữ `.env.seed` để dùng lại mật k
 đã đổi mật khẩu qua ứng dụng thì dùng mật khẩu mới, seed không đặt lại mật khẩu.
 `--dry-run` không ghi file mật khẩu và rollback toàn bộ thay đổi DB.
 
+## Seed trên Supabase sau khi deploy
+
+Deploy code lên Vercel hoặc chạy migration chỉ chuẩn bị ứng dụng/schema;
+không sao chép dữ liệu đã seed ở database local sang Supabase. Script seed
+ghi vào database mà `DATABASE_URL` đang trỏ tới, theo thứ tự ưu tiên: biến
+môi trường của terminal, `.env.local`, rồi `.env`. Cấu hình `CORS_ORIGINS`
+không tạo hay chuyển tài khoản.
+
+Đảm bảo `DATABASE_URL` dùng cùng project/database Supabase với biến
+`DATABASE_URL` của backend trên Vercel. Giữ file `.env.seed` hiện có để dùng
+lại email/mật khẩu đã tạo. Sau khi migration hoàn tất, chạy từ gốc repo:
+
+```powershell
+.\backend\.venv\Scripts\python.exe backend/scripts/check_db.py --require-supabase
+Push-Location backend
+.\.venv\Scripts\python.exe -m scripts.seed_demo --dry-run
+.\.venv\Scripts\python.exe -m scripts.seed_demo
+Pop-Location
+```
+
+Chỉ tiếp tục seed khi bước kiểm tra xác nhận Supabase và migration ở head;
+chỉ chạy lệnh ghi thật khi `--dry-run` thành công. Nếu thiếu schema hoặc
+migration cũ, làm theo [hướng dẫn Supabase](supabase.md) trước.
+
+Ứng dụng dùng bảng `public.users` và JWT của backend, nên các tài khoản này
+không xuất hiện trong mục **Authentication → Users** (`auth.users`) của
+Supabase. Kiểm tra trong **Table Editor → public → users**, hoặc chạy truy
+vấn chỉ đọc trong SQL Editor:
+
+```sql
+SELECT email, role, status
+FROM public.users
+WHERE email LIKE '%@tutor.example.com'
+ORDER BY role;
+```
+
+Đăng nhập website bằng email/mật khẩu trong `.env.seed`. Không cần upload
+file này hay khai báo các biến `SEED_*` trên Vercel; backend xác thực bằng
+password hash trong database. Nếu đã seed đúng Supabase nhưng website vẫn
+không nhận tài khoản, kiểm tra lại `DATABASE_URL` của môi trường Vercel đang
+truy cập và redeploy nếu vừa thay biến môi trường.
+
 Đây là lệnh CLI tạo dữ liệu phát triển, bao gồm quyền quản trị theo yêu cầu;
 không được thêm thành endpoint công khai hoặc tự chạy khi khởi động server.

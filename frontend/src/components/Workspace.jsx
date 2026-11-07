@@ -79,6 +79,7 @@ export function Pager({ offset, setOffset, length, size = 20, hasNext = length >
 }
 
 const fieldLabels = {
+  price: 'Giá niêm yết', credits: 'Số credit', is_active: 'Đang mở bán', is_live: 'Học trực tiếp',
   id: 'Mã', subscription_id: 'Mã đăng ký', customer_id: 'Khách hàng', tutor_id: 'Gia sư',
   user_id: 'Người dùng', booking_id: 'Mã đơn học', course_id: 'Mã khóa học', admin_id: 'Người xử lý',
   title_at_purchase: 'Nội dung đăng ký', price_at_purchase: 'Giá lúc mua', status: 'Trạng thái', role: 'Vai trò',

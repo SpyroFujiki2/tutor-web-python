@@ -1,3 +1,5 @@
+import { browserStorage, readSession, SESSION_KEY, sessionIdentity, validTokens, writeSession } from './session.js'
+
 export async function getHealth(baseUrl, { signal } = {}) {
   const timeout = AbortSignal.timeout(10_000)
   const requestSignal = signal ? AbortSignal.any([signal, timeout]) : timeout
@@ -40,11 +42,39 @@ export class ApiError extends Error {
   }
 }
 
-// Tokens live only in memory. A reload requires sign-in again.
-export function createApiClient(baseUrl, { onUnauthorized = () => {} } = {}) {
-  let tokens = null
+export function createApiClient(baseUrl, {
+  onUnauthorized = () => {}, storage = browserStorage(),
+  locks = globalThis.navigator?.locks, eventTarget = globalThis.window,
+} = {}) {
+  const storageKey = `${SESSION_KEY}:${baseUrl || 'same-origin'}`
+  let tokens = readSession(storage, storageKey)
+  let saved = JSON.stringify(tokens)
   let generation = 0
   let refreshing = null
+  const listeners = new Set()
+
+  function syncSession() {
+    if (!storage) return
+    const latest = readSession(storage, storageKey)
+    const serialized = JSON.stringify(latest)
+    if (serialized === saved) return
+    const changedSession = sessionIdentity(latest) !== sessionIdentity(tokens)
+    tokens = latest
+    saved = serialized
+    if (changedSession) {
+      generation += 1
+      refreshing = null
+      listeners.forEach((listener) => listener())
+    }
+  }
+
+  function persist(value) {
+    tokens = validTokens(value)
+    saved = JSON.stringify(tokens)
+    writeSession(storage, storageKey, tokens)
+    // A failed write must not make a later read erase the in-memory login.
+    if (storage && JSON.stringify(readSession(storage, storageKey)) !== saved) storage = null
+  }
 
   async function send(path, { method = 'GET', body, rawBody, contentType, responseType, signal, accessToken } = {}) {
     const timeout = AbortSignal.timeout(10_000)
@@ -83,11 +113,27 @@ export function createApiClient(baseUrl, { onUnauthorized = () => {} } = {}) {
 
   function setTokens(value) {
     generation += 1
-    tokens = value
+    persist(value)
     refreshing = null
   }
 
+  function subscribeSession(listener) {
+    listeners.add(listener)
+    const handle = (event) => {
+      if (event.key === storageKey || event.key === null) syncSession()
+    }
+    eventTarget?.addEventListener('storage', handle)
+    // Detect changes made while this tab was suspended.
+    eventTarget?.addEventListener('focus', syncSession)
+    return () => {
+      listeners.delete(listener)
+      eventTarget?.removeEventListener('storage', handle)
+      eventTarget?.removeEventListener('focus', syncSession)
+    }
+  }
+
   async function request(path, options = {}) {
+    syncSession()
     const accessToken = tokens?.access_token
     const startedGeneration = generation
     try {
@@ -96,13 +142,23 @@ export function createApiClient(baseUrl, { onUnauthorized = () => {} } = {}) {
       const publicAuth = ['/auth/login', '/auth/register', '/auth/refresh'].includes(path)
       if (error.status !== 401 || !accessToken || publicAuth || startedGeneration !== generation) throw error
       // Concurrent requests share one rotation; a late 401 reuses the new access token.
+      syncSession()
       if (tokens?.access_token === accessToken) {
         if (!refreshing) {
-          const pending = send('/auth/refresh', { method: 'POST', body: { refresh_token: tokens.refresh_token } })
-            .then((pair) => {
-              if (generation === startedGeneration) tokens = pair
-            }).catch((refreshError) => {
-              if (generation === startedGeneration) {
+          const rotate = async () => {
+            syncSession()
+            if (generation !== startedGeneration || !tokens) throw new ApiError('Phiên đăng nhập đã kết thúc.', 401)
+            if (tokens.access_token !== accessToken) return
+            const refreshToken = tokens.refresh_token
+            const pair = await send('/auth/refresh', { method: 'POST', body: { refresh_token: refreshToken } })
+            syncSession()
+            if (generation === startedGeneration && tokens?.refresh_token === refreshToken) persist(pair)
+          }
+          // Refresh tokens are single-use. Serialize rotation across browser tabs.
+          const pending = (storage && locks?.request ? locks.request(storageKey, rotate) : rotate())
+            .catch((refreshError) => {
+              syncSession()
+              if ([401, 403].includes(refreshError.status) && generation === startedGeneration) {
                 setTokens(null)
                 onUnauthorized()
               }
@@ -127,5 +183,5 @@ export function createApiClient(baseUrl, { onUnauthorized = () => {} } = {}) {
     }
   }
 
-  return { request, setTokens }
+  return { request, setTokens, subscribeSession, hasSession: () => { syncSession(); return !!tokens } }
 }

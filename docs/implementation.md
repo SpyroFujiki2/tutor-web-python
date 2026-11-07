@@ -14,8 +14,9 @@ kế ban đầu; danh sách dưới đây và OpenAPI `/api/docs` phản ánh co
 - Quản trị đổi trạng thái user theo bậc quyền, có audit; không tự khóa chính mình
   hoặc khóa tài khoản hệ thống/head admin.
 - Dọn các phiên đã hết hạn hơn 30 ngày qua API quản trị, có nhật ký.
-- Frontend giữ token trong bộ nhớ, tự refresh và chỉ cho một refresh chạy đồng thời.
-  Tải lại trang cần đăng nhập lại. Rate limit login theo IP trong từng process.
+- Frontend lưu token trong localStorage, khôi phục phiên khi tải lại và tự refresh.
+  Web Locks tuần tự hóa refresh giữa các tab; storage đồng bộ đăng xuất. Lỗi mạng
+  tạm thời không xóa phiên. Rate limit login theo IP trong từng process.
 
 Tạo quản trị đầu tiên (không có tài khoản/mật khẩu mặc định):
 

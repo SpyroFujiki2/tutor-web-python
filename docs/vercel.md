@@ -82,7 +82,11 @@ intended `DATABASE_URL` set in that terminal:
 ```
 
 Migrations and demo seeds do not run automatically during a deployment or
-function startup. The backend function includes migration scripts so its
+function startup. Local seeded rows are not uploaded with the code. After
+migrating Supabase, run the [Supabase seed workflow](seed-data.md#seed-trên-supabase-sau-khi-deploy)
+once against the same database configured in Vercel, reusing the local
+`.env.seed` credentials. Accounts are stored in `public.users`, rather than
+Supabase Authentication. The backend function includes migration scripts so its
 `/api/ready` check can compare database and application schema versions
 without relying on the root `alembic.ini` being in the function bundle.
 
