@@ -12,7 +12,7 @@ from app.models import ExternalTransaction
 from test_domain_api import DomainApiFixture
 
 
-class VNPAYApiTests(DomainApiFixture):
+class VNPAYFixture(DomainApiFixture):
     def setUp(self):
         super().setUp()
         self.client.close()
@@ -38,6 +38,8 @@ class VNPAYApiTests(DomainApiFixture):
         self.assertEqual(response.status_code, 200, response.text)
         return response.json()
 
+
+class VNPAYApiTests(VNPAYFixture):
     def test_checkout_signs_server_price_in_vnd_times_100_and_reuses_reference(self):
         identity = uuid4()
         first, second = self.checkout(identity), self.checkout(identity)

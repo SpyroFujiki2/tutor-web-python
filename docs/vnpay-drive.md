@@ -33,6 +33,16 @@ email, hoặc nhập vào mục cấu hình IPN nếu portal merchant hỗ trợ
 https://<backend-public-host>/api/payments/vnpay/ipn
 ```
 
+Trường **Website/AddressWebsite** trong form đăng ký sandbox chỉ khai báo địa
+chỉ website; điền URL IPN vào trường đó chưa xác nhận IPN đã được cấu hình.
+Theo [hướng dẫn PAY](https://sandbox.vnpayment.vn/apis/docs/thanh-toan-pay/pay.html),
+sau khi cài đặt endpoint cần gửi URL này cho VNPAY. Liên hệ kỹ thuật tại
+`kythuatctt@vnpay.vn` theo [trang liên hệ chính thức](https://sandbox.vnpayment.vn/apis/contact/),
+ghi rõ môi trường sandbox, TmnCode hiện tại và URL IPN HTTPS; yêu cầu xác nhận
+URL đã được gắn cho đúng TmnCode. Không gửi HashSecret hoặc mật khẩu.
+Đổi merchant cần cấu hình IPN cho merchant mới; đổi biến `.env`/Vercel không
+tự cập nhật cấu hình ở hệ thống VNPAY.
+
 Localhost không nhận được IPN từ máy chủ VNPAY. Khi thử local, dùng hostname
 HTTPS/tunnel trỏ tới backend và cấu hình đúng trên portal. Nếu backend sau proxy,
 chỉ cho Uvicorn tin proxy headers từ địa chỉ proxy đã xác định.
@@ -57,6 +67,11 @@ Lệnh chỉ đọc cấu hình, readiness, trạng thái VNPAY và gửi một 
 TmnCode/HashSecret và không xác nhận thay VNPAY rằng IPN đã được đăng ký.
 IPN chưa cấu hình trả HTTP 503; IPN thiếu/sai chữ ký sau khi cấu hình hợp lệ trả
 HTTP 200 kèm `RspCode=97`, đây là kết quả mong đợi khi mở URL trống trên trình duyệt.
+
+`--probe` còn ký một request cho UUID ngẫu nhiên không tồn tại, không gửi trạng
+thái thành công: backend phải trả `RspCode=01`. Nếu probe không chữ ký qua nhưng
+probe có chữ ký trả 97, kiểm tra lại TmnCode/HashSecret theo môi trường Vercel
+và redeploy. Không chỉ dùng phản hồi 97 của URL trống để kết luận cấu hình đúng.
 
 Nếu chưa có gói nạp phù hợp, đăng nhập tài khoản quản trị ứng dụng và tạo gói
 trong mục quản lý gói credit, với giá tối thiểu 5.000đ. Tài khoản Merchant Admin
@@ -84,7 +99,9 @@ cơ chế tự động này; chỉ đơn chuyển khoản thủ công và rút t
 - Mã tham chiếu là UUID đơn dạng hex; các lần thử lại cùng request không tạo đơn mới.
 - Tất cả tham số `vnp_` được sắp xếp, URL encode rồi ký HMAC-SHA512; amount gửi
   sang VNPAY là số VND nhân 100 theo giao thức.
-- Chỉ IPN hợp lệ, đúng merchant/đơn/số tiền và hai mã trạng thái `00` mới cộng ví.
+- Chỉ IPN hoặc QueryDR đã xác minh, đúng merchant/đơn/số tiền và trạng thái
+  thanh toán `00` mới cộng ví. Với QueryDR, mã API `00` chưa đủ: phải kiểm tra
+  cả `vnp_TransactionStatus=00` và `vnp_TransactionType=01`.
 - Callback khóa đơn/ví, cộng credit, ghi ledger/audit và cập nhật trạng thái cùng
   một transaction. Lỗi commit rollback cả quy trình; callback lặp không cộng lại.
 - Return URL chỉ xác minh và hiển thị. Redirect của trình duyệt không cộng tiền.
@@ -102,6 +119,33 @@ khóa/booking là bút toán nội bộ. API hoàn VND sang ngân hàng qua VNPA
 khai riêng theo hợp đồng merchant. Test tự động dùng chữ ký và callback giả lập;
 chỉ xem kiểm thử sandbox thực tế hoàn tất sau khi thẻ test đã thanh toán, IPN
 VNPAY thực sự cập nhật đúng ví và các kịch bản SIT đạt yêu cầu.
+
+### Khi thanh toán thành công nhưng ví còn chờ
+
+Trang kết quả giữ `GET /api/payments/vnpay/return` chỉ đọc. Nếu người dùng đang
+đăng nhập và đơn vẫn pending sau 15 giây, trang gửi một POST có xác thực tới
+`/api/payments/vnpay/orders/{order_id}/verify`. Chủ đơn cũng có nút kiểm tra
+trong trang kết quả và mục Ví. Không dùng tham số từ trình duyệt để cộng ví.
+
+Backend lấy mã tham chiếu, ngày tạo giao dịch và số tiền từ đơn đã lưu, gọi
+QueryDR server-to-server, xác minh HMAC-SHA512 theo định dạng pipe riêng của
+QueryDR và đối chiếu lại phản hồi với đơn. Network timeout, phản hồi lỗi 99,
+JSON không hợp lệ, chữ ký sai hoặc dữ liệu không khớp đều giữ đơn pending.
+Đơn cũ thuộc merchant khác không được truy vấn bằng khóa của merchant mới.
+
+Mỗi đơn chỉ được truy vấn lại sau 5 phút, được bảo vệ bằng metadata
+trong DB để nhiều tab/worker không gọi dồn API. Reservation được commit và
+nhả connection/khóa trước khi gọi VNPAY; sau phản hồi, backend khóa và đọc lại
+đơn. IPN và QueryDR dùng chung transaction ghi ví/ledger, nên IPN đến trong
+lúc truy vấn hoặc đến muộn không cộng trùng. Audit phân biệt `vnpay.ipn` và
+`vnpay.querydr`.
+
+Trong Vercel Runtime Logs, lọc `VNPAY IPN` / `VNPAY QueryDR` để thấy mã phản
+hồi, mã đơn và loại lỗi. Không log HashSecret, chữ ký hoặc toàn bộ query string.
+HTTP 200 của IPN không đủ để kết luận đã cộng ví: cần kiểm tra JSON RspCode
+và audit/ledger. Nếu không có request IPN từ VNPAY, kiểm tra đăng ký URL theo
+đúng TmnCode và kiểm tra Deployment Protection/Firewall; ứng dụng không thể
+tự nhận một webhook chưa được VNPAY gửi tới.
 
 ## Google Drive
 

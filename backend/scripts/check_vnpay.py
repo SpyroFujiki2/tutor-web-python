@@ -4,13 +4,14 @@ import argparse
 import json
 import os
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlsplit
+from urllib.parse import urlencode, urlsplit
 from urllib.request import Request, urlopen
+from uuid import uuid4
 
 from dotenv import dotenv_values
 
 from app.core.config import ROOT_DIR
-from app.core.vnpay import get_vnpay_settings
+from app.core.vnpay import get_vnpay_settings, signature
 
 
 def probe_json(url):
@@ -69,6 +70,18 @@ def main(argv=None):
             checks.append(ok)
             print(('OK: ' if ok else 'FAIL: ') + path)
         print('IPN probe is unsigned and must be rejected with RspCode=97; no wallet is changed.')
+        if settings:
+            params = {'vnp_TmnCode': settings.tmn_code, 'vnp_TxnRef': uuid4().hex}
+            params['vnp_SecureHash'] = signature(params, settings.hash_secret)
+            try:
+                result = probe_json(origin + '/api/payments/vnpay/ipn?' + urlencode(params))
+                ok = isinstance(result, dict) and result.get('RspCode') == '01'
+            except ValueError:
+                ok = False
+            checks.append(ok)
+            print(('OK: ' if ok else 'FAIL: ') + 'signed IPN probe (nonexistent order; expected RspCode=01)')
+            if not ok:
+                print('Check Vercel environment scope, merchant/key values, then redeploy. The local and deployed settings may differ.')
     print('This check does not confirm a real sandbox payment or VNPAY IPN registration.')
     return 0 if all(checks) else 1
 

@@ -2,6 +2,7 @@ import logging
 from datetime import datetime
 from typing import Annotated
 from uuid import UUID
+from time import monotonic
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
@@ -11,13 +12,14 @@ from sqlalchemy.orm import Session
 from app.api.dependencies.auth import get_current_user
 from app.api.dependencies.database import get_session
 from app.core.vnpay import VNPAYSettings, get_vnpay_settings, verified_query
+from app.core.vnpay_query import VNPAYQueryError, query_transaction
 from app.models import CashOrder, User
 from app.models.enums import CashOrderStatus
-from app.modules.finance.vnpay import apply_ipn, checkout
+from app.modules.finance.vnpay import apply_ipn, checkout, finish_verification, reserve_verification
 from app.schemas.domain import DepositInput
 
 router = APIRouter(prefix='/payments/vnpay', tags=['vnpay'])
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('uvicorn.error.vnpay')
 DB = Annotated[Session, Depends(get_session)]
 Current = Annotated[User, Depends(get_current_user)]
 
@@ -48,6 +50,17 @@ class CheckoutResponse(BaseModel):
     expires_at: datetime
 
 
+class VerificationInput(BaseModel):
+    transaction_no: str | None = Field(default=None, pattern=r'^[0-9]{1,15}$')
+
+
+def safe_reference(value):
+    try:
+        return UUID(hex=value).hex
+    except (ValueError, TypeError, AttributeError):
+        return 'invalid'
+
+
 @router.get('/status')
 def status(settings: Annotated[VNPAYSettings | None, Depends(configured_settings)]):
     return {'enabled': settings is not None, 'sandbox': settings is None or 'sandbox.' in settings.payment_url}
@@ -66,17 +79,50 @@ def create_checkout(payload: CheckoutInput, request: Request, session: DB, user:
 @router.get('/ipn')
 def ipn(request: Request, session: DB, settings: Config, response: Response):
     response.headers['Cache-Control'] = 'no-store'
+    started = monotonic()
+    reference = safe_reference(request.query_params.get('vnp_TxnRef'))
     params = verified_query(request.query_params.multi_items(), settings)
     if params is None:
+        logger.warning('VNPAY IPN rejected order=%s code=97 reason=invalid_signature merchant_matches=%s',
+                       reference, request.query_params.get('vnp_TmnCode') == settings.tmn_code)
         return {'RspCode': '97', 'Message': 'Invalid signature'}
     try:
         result = apply_ipn(session, params, settings)
         session.commit()
+        logger.info('VNPAY IPN processed order=%s code=%s elapsed_ms=%d', reference, result['RspCode'],
+                    int((monotonic() - started) * 1000))
         return result
     except (SQLAlchemyError, ValueError, LookupError, PermissionError) as error:
         session.rollback()
-        logger.error('VNPAY notification could not be applied (%s)', type(error).__name__)
+        logger.error('VNPAY IPN failed order=%s code=99 error=%s elapsed_ms=%d', reference,
+                     type(error).__name__, int((monotonic() - started) * 1000))
         return {'RspCode': '99', 'Message': 'Unable to apply notification'}
+
+
+@router.post('/orders/{order_id}/verify')
+def verify_payment(order_id: UUID, payload: VerificationInput, request: Request,
+                   session: DB, user: Current, settings: Config, response: Response):
+    response.headers['Cache-Control'] = 'no-store'
+    user_id = user.id
+    reservation, completed = reserve_verification(session, user_id, order_id, settings)
+    # Release the database connection and row lock during the outbound request.
+    session.commit()
+    if completed is not None:
+        return completed
+    result, error = None, None
+    try:
+        result = query_transaction(settings, reservation['metadata'], reservation['amount_vnd'],
+                                   request.client.host if request.client else '127.0.0.1', payload.transaction_no)
+    except VNPAYQueryError as failure:
+        error = failure
+        logger.warning('VNPAY QueryDR unavailable order=%s code=%s request_id=%s',
+                       order_id.hex, failure.code, failure.request_id or 'none')
+    with session.begin():
+        outcome = finish_verification(session, user_id, order_id, settings, result=result,
+                                      error=error, transaction_no=payload.transaction_no)
+    logger.info('VNPAY verification completed order=%s status=%s credited=%s',
+                order_id.hex, outcome['verification_status'], outcome['credited'])
+    return outcome
 
 
 @router.get('/return')
@@ -92,8 +138,14 @@ def payment_return(request: Request, session: DB, settings: Config, response: Re
         return {'signature_valid': True, 'payment_status': 'invalid', 'credited': False}
     order = session.get(CashOrder, identity)
     matches = bool(order and order.bank_info and order.bank_info.get('provider') == 'vnpay'
+                   and order.bank_info.get('tmn_code') == settings.tmn_code
                    and order.bank_info.get('txn_ref') == params.get('vnp_TxnRef')
                    and params.get('vnp_Amount') == str(order.amount_vnd * 100))
     success = params.get('vnp_ResponseCode') == '00' and params.get('vnp_TransactionStatus') == '00'
     return {'signature_valid': True, 'payment_status': 'success' if success and matches else 'failed',
-            'credited': bool(matches and order.status == CashOrderStatus.SUCCESS)}
+            'credited': bool(matches and order.status == CashOrderStatus.SUCCESS),
+            'order_id': str(order.id) if matches else None,
+            'transaction_no': params.get('vnp_TransactionNo') if matches else None,
+            'amount_vnd': order.amount_vnd if matches else None,
+            'credit_amount': order.credit_amount if matches else None,
+            'order_status': order.status.value if matches else None}

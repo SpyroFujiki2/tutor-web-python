@@ -15,6 +15,7 @@ export default function Wallet({ api, user }) {
   const orders = useResource(api, `/me/cash-orders?limit=20&offset=${offset}`, version, 15000)
   const [reviewPackage, setReviewPackage] = useState(null)
   const [paymentLink, setPaymentLink] = useState(null)
+  const [verification, setVerification] = useState(null)
   const vnpay = useResource(api, '/payments/vnpay/status')
   const [historyType, setHistoryType] = useState('normal')
   const refresh = () => setVersion((value) => value + 1)
@@ -68,7 +69,12 @@ export default function Wallet({ api, user }) {
         ]} submit="Tạo đơn rút" onSubmit={async (values, requestId) => { await api.request('/me/withdrawals', { method: 'POST', body: { ...values, request_id: requestId } }); refresh() }} />}
       </section></div>
     <h2>Đơn nạp / rút</h2><button onClick={refresh}>Cập nhật số dư & đơn</button><Resource resource={orders} empty="Chưa có đơn thanh toán.">{(rows) => <><div className="card-grid">{rows.map((row) => <article className="card card-body" key={row.id}><Badge value={row.status} /><p>{row.provider === 'vnpay' ? 'VNPAY' : 'Xác nhận thủ công'}</p><Details row={row} fields={['id', 'order_type', 'credit_amount', 'amount_vnd', 'created_at']} />
-      {row.provider === 'vnpay' && <p className={`payment-state ${row.status === 'success' ? 'is-success' : ''}`}><Icon name={row.status === 'success' ? 'check' : 'clock'} size={17} />{row.status === 'success' ? 'Đã tự động cộng credit vào ví.' : row.status === 'pending' ? 'Chờ VNPAY xác nhận · Không cần admin duyệt.' : 'Đã cập nhật theo kết quả thanh toán VNPAY.'}</p>}
+      {row.provider === 'vnpay' && <p className={`payment-state ${row.status === 'success' ? 'is-success' : ''}`}><Icon name={row.status === 'success' ? 'check' : 'clock'} size={17} />{row.status === 'success' ? 'Đã cộng credit vào ví.' : row.status === 'pending' ? 'Chờ VNPAY xác nhận · Không cần admin duyệt.' : 'Đã cập nhật theo kết quả thanh toán VNPAY.'}</p>}
+      {row.provider === 'vnpay' && row.status === 'pending' && <Action onClick={async () => {
+        const result = await api.request(`/payments/vnpay/orders/${row.id}/verify`, { method: 'POST', body: {} })
+        setVerification({ ...result, id: row.id }); refresh()
+      }}><Icon name="refresh" size={16} />Kiểm tra thanh toán</Action>}
+      {verification?.id === row.id && <p role="status">{verification.message}</p>}
       {row.provider === 'vnpay' && row.status === 'pending' && <Action onClick={async () => setPaymentLink(await api.request('/payments/vnpay/checkout', { method: 'POST', body: { request_id: row.id, package_id: row.package_id } }))}>Mở lại thanh toán VNPAY</Action>}
       {row.provider !== 'vnpay' && row.status === 'pending' && <Action onClick={async () => {
         await api.request(`/me/cash-orders/${row.id}/cancel`, { method: 'POST' }); refresh()

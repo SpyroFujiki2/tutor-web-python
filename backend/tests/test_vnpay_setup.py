@@ -4,6 +4,8 @@ import unittest
 from contextlib import redirect_stdout
 from unittest.mock import patch
 from urllib.error import URLError
+from urllib.parse import parse_qsl, urlsplit
+from app.core.vnpay import get_vnpay_settings, verified_query
 
 from scripts import check_vnpay
 
@@ -43,18 +45,22 @@ class VNPAYSetupTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn('public HTTPS', output)
 
-    def test_probe_only_reads_health_status_and_unsigned_ipn(self):
+    def test_probe_checks_deployed_signing_keys_without_using_a_real_order(self):
         with patch.object(check_vnpay, 'probe_json', side_effect=[
             {'status': 'ok'}, {'enabled': True, 'sandbox': True},
             {'RspCode': '97', 'Message': 'Invalid signature'},
+            {'RspCode': '01', 'Message': 'Order not found'},
         ]) as probe:
             code, output = self.run_check('--probe')
         self.assertEqual(code, 0)
-        self.assertEqual([call.args[0] for call in probe.call_args_list], [
+        self.assertEqual([call.args[0] for call in probe.call_args_list[:3]], [
             'https://tutor.example/api/ready',
             'https://tutor.example/api/payments/vnpay/status',
             'https://tutor.example/api/payments/vnpay/ipn',
         ])
+        signed = probe.call_args_list[3].args[0]
+        self.assertIsNotNone(verified_query(parse_qsl(urlsplit(signed).query), get_vnpay_settings()))
+        self.assertIn('signed IPN probe', output)
         self.assertNotIn(self.secret, output)
 
     def test_probe_failure_is_reported_without_leaking_exception_details(self):
@@ -63,6 +69,16 @@ class VNPAYSetupTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertNotIn(self.secret, output)
         self.assertIn('FAIL: /api/payments/vnpay/ipn', output)
+
+    def test_unsigned_probe_passing_does_not_hide_mismatched_deployed_credentials(self):
+        with patch.object(check_vnpay, 'probe_json', side_effect=[
+            {'status': 'ok'}, {'enabled': True, 'sandbox': True},
+            {'RspCode': '97'}, {'RspCode': '97'},
+        ]):
+            code, output = self.run_check('--probe')
+        self.assertEqual(code, 1)
+        self.assertIn('FAIL: signed IPN probe', output)
+        self.assertNotIn(self.secret, output)
 
 
 if __name__ == '__main__':

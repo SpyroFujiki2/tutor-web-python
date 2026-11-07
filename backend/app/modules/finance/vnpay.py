@@ -1,11 +1,12 @@
 """Authenticated checkout and signed, idempotent IPN crediting cash orders."""
 
 import re
-from datetime import datetime
+from datetime import UTC, datetime
 from hashlib import sha256
 from uuid import UUID
 
 from app.core.vnpay import VIETNAM, payment_link, payment_metadata
+from app.core.vnpay_query import VNPAYQueryError, verify_query_response
 from app.models import ActionLog, CashOrder, ExternalTransaction
 from app.models.enums import CashOrderStatus, CashOrderType
 from app.modules.common import add, get, money, now, require
@@ -31,6 +32,11 @@ def checkout(session, user_id, request_id, package_id, settings, ip, bank_code=N
 
 
 def apply_ipn(session, params, settings):
+    return apply_payment_confirmation(session, params, settings, source='ipn')
+
+
+def apply_payment_confirmation(session, params, settings, *, source):
+    require(source in {'ipn', 'querydr'}, 'Nguồn xác nhận thanh toán không hợp lệ')
     try:
         identity = UUID(hex=params.get('vnp_TxnRef', ''))
     except (ValueError, AttributeError):
@@ -59,9 +65,9 @@ def apply_ipn(session, params, settings):
         return {'RspCode': '99', 'Message': 'Invalid transaction reference'}
     target = CashOrderStatus.SUCCESS if success else CashOrderStatus.FAILED
     log = add(session, ActionLog, admin_id=None, target_user_id=order.user_id,
-              target_type='cash_order', target_id=order.id, action_code='vnpay.ipn',
+              target_type='cash_order', target_id=order.id, action_code='vnpay.' + source,
               old_value={'status': order.status}, new_value={'status': target, 'provider': 'vnpay', 'transaction_no': transaction_no},
-              reason='Verified VNPAY server notification', created_at=now())
+              reason='Verified VNPAY server ' + ('notification' if source == 'ipn' else 'transaction query'), created_at=now())
     if success:
         wallet = lock_wallets(session, order.wallet_id)[order.wallet_id]
         require(wallet.user_id == order.user_id, 'Wallet owner does not match order')
@@ -74,7 +80,71 @@ def apply_ipn(session, params, settings):
         entry.checksum = sha256(f'{entry.id}:{order.id}:{transaction_no}:{credit}:{before}:{after}'.encode()).hexdigest()
     order.bank_info = {**order.bank_info, 'transaction_no': transaction_no,
                        'pay_date': params.get('vnp_PayDate'), 'response_code': response_code,
-                       'transaction_status': transaction_status}
+                       'transaction_status': transaction_status, 'confirmation_source': source}
     order.status, order.updated_at = target, now()
     session.flush()
     return {'RspCode': '00', 'Message': 'Confirm Success'}
+
+
+QUERY_COOLDOWN_SECONDS = 300
+
+
+def verification_result(order, *, state=None, retry_after=0):
+    credited = order.status == CashOrderStatus.SUCCESS
+    state = 'confirmed' if credited else 'failed' if order.status == CashOrderStatus.FAILED else state or 'waiting'
+    messages = {
+        'confirmed': 'Thanh toán đã được xác nhận và credit đã được cộng vào ví.',
+        'failed': 'Giao dịch chưa thành công. Bạn có thể kiểm tra đơn trong mục Ví.',
+        'waiting': 'VNPAY chưa xác nhận thanh toán. Hệ thống sẽ tiếp tục cập nhật đơn.',
+        'unavailable': 'Chưa lấy được xác nhận từ VNPAY. Vui lòng thử lại sau; bạn không cần thanh toán lại đơn này.',
+    }
+    return {'order_id': str(order.id), 'order_status': order.status.value, 'credited': credited,
+            'verification_status': state, 'retry_after_seconds': retry_after, 'message': messages[state]}
+
+
+def reserve_verification(session, user_id, order_id, settings):
+    """Caller commits this short reservation BEFORE making the provider request."""
+    order = get(session, CashOrder, order_id, lock=True)
+    require(order.user_id == user_id, 'Không tìm thấy đơn thanh toán', LookupError)
+    info = order.bank_info or {}
+    require(order.order_type == CashOrderType.IN and info.get('provider') == 'vnpay',
+            'Đơn này không thanh toán qua VNPAY')
+    if order.status != CashOrderStatus.PENDING:
+        return None, verification_result(order)
+    require(info.get('tmn_code') == settings.tmn_code,
+            'Đơn thuộc cấu hình VNPAY cũ; cần đối soát với đúng merchant ban đầu')
+    current = int(datetime.now(UTC).timestamp())
+    retry_at = info.get('query_retry_at', 0)
+    if type(retry_at) is int and retry_at > current:
+        return None, verification_result(order, state=info.get('query_state') if info.get('query_state') == 'unavailable' else 'waiting',
+                                         retry_after=min(retry_at - current, QUERY_COOLDOWN_SECONDS))
+    order.bank_info = {**info, 'query_retry_at': current + QUERY_COOLDOWN_SECONDS,
+                       'query_state': 'checking', 'query_requested_at': current}
+    session.flush()
+    return {'metadata': dict(info), 'amount_vnd': order.amount_vnd}, None
+
+
+def finish_verification(session, user_id, order_id, settings, *, result=None, error=None, transaction_no=None):
+    """Fresh row lock serializes QueryDR completion against IPN crediting."""
+    order = get(session, CashOrder, order_id, lock=True)
+    require(order.user_id == user_id, 'Không tìm thấy đơn thanh toán', LookupError)
+    if order.status != CashOrderStatus.PENDING:
+        return verification_result(order)
+    info = order.bank_info or {}
+    require(info.get('provider') == 'vnpay' and info.get('tmn_code') == settings.tmn_code,
+            'Cấu hình đơn thanh toán đã thay đổi')
+    if error is None:
+        try:
+            params = verify_query_response(result, settings, info.get('txn_ref'), order.amount_vnd, transaction_no)
+            outcome = apply_payment_confirmation(session, params, settings, source='querydr')
+            if outcome['RspCode'] not in {'00', '02', '99'}:
+                raise VNPAYQueryError('mismatched_response')
+        except VNPAYQueryError as failure:
+            error = failure
+    current = int(datetime.now(UTC).timestamp())
+    order.bank_info = {**order.bank_info, 'query_checked_at': current,
+                       'query_state': 'unavailable' if error else 'checked',
+                       'query_error_code': error.code if error else None}
+    session.flush()
+    return verification_result(order, state='unavailable' if error else 'waiting',
+                               retry_after=QUERY_COOLDOWN_SECONDS if order.status == CashOrderStatus.PENDING else 0)
